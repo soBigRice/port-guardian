@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { check, type Update } from "@tauri-apps/plugin-updater";
 import { PortService, Theme } from "./types";
 import PortTable from "./components/PortTable";
@@ -56,26 +57,42 @@ function App() {
     }
   }, [theme]);
 
+  // 流式扫描：逐个接收端口结果
   const refresh = useCallback(async () => {
+    if (!(window as any).__TAURI_INTERNALS__) return;
+    setServices([]);
     setLoading(true);
     try {
-      if (!(window as any).__TAURI_INTERNALS__) {
-        setLoading(false);
-        return;
-      }
-      const result = await invoke<PortService[]>("scan_ports");
-      setServices(result);
-      setLastRefresh(new Date());
+      await invoke("scan_ports_stream");
     } catch (err) {
-      console.error("扫描失败:", err);
-    } finally {
+      console.error("扫描启动失败:", err);
       setLoading(false);
     }
   }, []);
 
+  // 监听扫描事件
+  useEffect(() => {
+    if (!(window as any).__TAURI_INTERNALS__) return;
+
+    const unlistenPromise = Promise.all([
+      listen<PortService>("port-found", (event) => {
+        setServices((prev) => [...prev, event.payload]);
+      }),
+      listen("scan-complete", () => {
+        setLoading(false);
+        setLastRefresh(new Date());
+      }),
+    ]);
+
+    return () => {
+      unlistenPromise.then(([u1, u2]) => { u1(); u2(); });
+    };
+  }, []);
+
+  // 启动时自动扫描
   useEffect(() => {
     refresh();
-  }, [refresh]);
+  }, []);
 
   // Escape 关闭详情面板
   useEffect(() => {

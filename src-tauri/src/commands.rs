@@ -3,6 +3,7 @@ use std::io::Read;
 use std::sync::Mutex;
 
 use serde::Serialize;
+use tauri::{AppHandle, Emitter};
 
 use crate::port_scanner;
 use crate::process_resolver::{self, ProcessInfo};
@@ -90,6 +91,58 @@ pub fn scan_ports() -> Result<Vec<PortService>, String> {
     }
 
     Ok(services)
+}
+
+/// 流式扫描端口：扫描到一个就通过事件推送给前端
+#[tauri::command(async)]
+pub async fn scan_ports_stream(app: AppHandle) -> Result<(), String> {
+    let ports = port_scanner::scan_listening_ports()?;
+    let current_user = whoami::username();
+
+    for port_info in ports {
+        let process = match process_resolver::resolve_process(port_info.pid) {
+            Ok(p) => p,
+            Err(_) => continue,
+        };
+
+        let parent_chain = process_tree::build_parent_chain(port_info.pid);
+        let source = process_tree::identify_source(&parent_chain);
+        let classification =
+            service_classifier::classify(&process, &parent_chain, port_info.port, &source);
+        let safety = safety_checker::judge(
+            &classification.service_type,
+            &process.name,
+            &process.command_line,
+            &process.user,
+            &current_user,
+        );
+
+        let service = PortService {
+            id: format!("{}-{}", port_info.port, port_info.pid),
+            port: port_info.port,
+            protocol: port_info.protocol,
+            local_address: port_info.local_address,
+            state: port_info.state,
+            pid: port_info.pid,
+            process_name: process.name,
+            executable_path: process.executable_path,
+            command_line: process.command_line,
+            cwd: process.cwd,
+            user: process.user,
+            parent_chain,
+            source,
+            service_type: classification.service_type,
+            service_name: classification.service_name,
+            safety_level: safety.level,
+            safety_reason: safety.reason,
+            can_terminate: safety.can_terminate,
+        };
+
+        let _ = app.emit("port-found", service);
+    }
+
+    let _ = app.emit("scan-complete", ());
+    Ok(())
 }
 
 /// 获取指定 PID 的详细进程信息

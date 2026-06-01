@@ -6,7 +6,7 @@ mod safety_checker;
 mod terminator;
 mod commands;
 
-use commands::{scan_ports, get_process_detail, terminate_process, open_directory, get_source_icon};
+use commands::{scan_ports, scan_ports_stream, get_process_detail, terminate_process, open_directory, get_source_icon};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -16,6 +16,7 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
             scan_ports,
+            scan_ports_stream,
             get_process_detail,
             terminate_process,
             open_directory,
