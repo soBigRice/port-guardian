@@ -6,9 +6,10 @@ import SourceIcon from "./SourceIcon";
 interface Props {
   service: PortService;
   onKill: () => void;
+  onClose: () => void;
 }
 
-export default function ServiceDetail({ service, onKill }: Props) {
+export default function ServiceDetail({ service, onKill, onClose }: Props) {
   const shortCwd = service.cwd
     ? service.cwd.replace(/^\/Users\/[^/]+/, "~")
     : "";
@@ -25,7 +26,12 @@ export default function ServiceDetail({ service, onKill }: Props) {
     <div className="detail-panel">
       <div className="detail-header">
         <h3>端口 {service.port} 详情</h3>
-        <RiskBadge level={service.safety_level} />
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <RiskBadge level={service.safety_level} />
+          <button className="btn btn-icon detail-close" onClick={onClose} title="关闭">
+            &#10005;
+          </button>
+        </div>
       </div>
 
       <div className="detail-section">

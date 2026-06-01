@@ -221,6 +221,7 @@ function App() {
             <ServiceDetail
               service={selected}
               onKill={() => setKillTarget(selected)}
+              onClose={() => setSelected(null)}
             />
           </div>
         )}
