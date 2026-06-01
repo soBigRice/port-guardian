@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { PortService, Theme } from "./types";
 import PortTable from "./components/PortTable";
@@ -36,6 +36,7 @@ function App() {
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
   const [showSettings, setShowSettings] = useState(false);
   const [theme, setTheme] = useState<Theme>(getInitialTheme);
+  const rowClickedRef = useRef(false);
 
   // 应用主题
   useEffect(() => {
@@ -71,6 +72,19 @@ function App() {
   useEffect(() => {
     refresh();
   }, [refresh]);
+
+  // Escape 关闭详情面板
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        if (killTarget) setKillTarget(null);
+        else if (showSettings) setShowSettings(false);
+        else if (selected) setSelected(null);
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [selected, killTarget, showSettings]);
 
   useEffect(() => {
     let list = services;
@@ -206,13 +220,24 @@ function App() {
       </div>
 
       <div className="main">
-        <div className="table-area">
+        <div
+          className="table-area"
+          onClick={() => {
+            if (!rowClickedRef.current) {
+              setSelected(null);
+            }
+            rowClickedRef.current = false;
+          }}
+        >
           <PortTable
             services={filtered}
             selected={selected}
             loading={loading}
             hasFilter={search !== "" || filter !== "all"}
-            onSelect={setSelected}
+            onSelect={(s) => {
+              rowClickedRef.current = true;
+              setSelected(s);
+            }}
             onKill={(s) => setKillTarget(s)}
           />
         </div>
