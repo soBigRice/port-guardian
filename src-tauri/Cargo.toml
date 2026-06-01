@@ -1,0 +1,19 @@
+[package]
+name = "port-guardian"
+version = "0.1.0"
+description = "Port Guardian - 开发端口服务识别与安全清理工具"
+authors = ["you"]
+edition = "2024"
+
+[lib]
+name = "port_guardian_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-shell = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
