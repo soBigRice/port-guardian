@@ -519,38 +519,53 @@ body {
   opacity: 0.3;
 }
 
-.empty-state .icon.scanning {
-  animation: spin 1.2s linear infinite;
-  opacity: 0.6;
-  color: var(--accent);
+/* Radar scan animation */
+.scan-radar {
+  position: relative;
+  width: 80px;
+  height: 80px;
+  margin-bottom: 16px;
 }
 
-@keyframes spin {
-  to { transform: rotate(360deg); }
+.scan-radar-ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 2px solid var(--accent);
+  opacity: 0;
+  animation: radar-pulse 2s ease-out infinite;
 }
 
-/* Scanning bar animation */
-.scanning-bar {
-  width: 200px;
-  height: 3px;
-  background: var(--border);
-  border-radius: 2px;
-  overflow: hidden;
-  margin-top: 8px;
-}
+.scan-radar-ring:nth-child(2) { animation-delay: 0.6s; }
+.scan-radar-ring:nth-child(3) { animation-delay: 1.2s; }
 
-.scanning-bar-fill {
-  width: 40%;
-  height: 100%;
+.scan-radar-dot {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 10px;
+  height: 10px;
+  margin: -5px 0 0 -5px;
+  border-radius: 50%;
   background: var(--accent);
-  border-radius: 2px;
-  animation: scanning-slide 1.2s ease-in-out infinite;
+  box-shadow: 0 0 12px var(--accent);
 }
 
-@keyframes scanning-slide {
-  0% { transform: translateX(-100%); }
-  50% { transform: translateX(150%); }
-  100% { transform: translateX(-100%); }
+@keyframes radar-pulse {
+  0% { transform: scale(0.2); opacity: 0.8; }
+  100% { transform: scale(1); opacity: 0; }
+}
+
+.scan-status {
+  font-size: 14px;
+  color: var(--text);
+  margin-bottom: 4px;
+}
+
+.scan-progress {
+  font-size: 12px;
+  color: var(--text-dim);
+  font-family: "SF Mono", "Fira Code", monospace;
 }
 
 /* Table wrapper for overlay positioning */
@@ -568,13 +583,33 @@ body {
   right: 0;
   z-index: 5;
   pointer-events: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
-.scanning-overlay .scanning-bar {
-  width: 100%;
+.scanning-progress-bar {
+  flex: 1;
   height: 2px;
-  border-radius: 0;
-  margin: 0;
+  background: var(--border);
+  overflow: hidden;
+}
+
+.scanning-progress-fill {
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.3s ease;
+}
+
+.scanning-badge {
+  flex-shrink: 0;
+  font-size: 10px;
+  color: var(--accent);
+  font-family: "SF Mono", "Fira Code", monospace;
+  background: rgba(79, 140, 255, 0.08);
+  padding: 2px 8px;
+  border-radius: 10px;
+  border: 1px solid rgba(79, 140, 255, 0.15);
 }
 
 /* Scrollbar */

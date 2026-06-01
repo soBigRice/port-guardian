@@ -41,6 +41,8 @@ function App() {
   const [theme, setTheme] = useState<Theme>(getInitialTheme);
   const [updateInfo, setUpdateInfo] = useState<Update | null>(null);
   const [showUpdate, setShowUpdate] = useState(false);
+  const [scanTotal, setScanTotal] = useState(0);
+  const [scannedCount, setScannedCount] = useState(0);
   const rowClickedRef = useRef(false);
 
   // 应用主题
@@ -62,6 +64,8 @@ function App() {
     if (!(window as any).__TAURI_INTERNALS__) return;
     setServices([]);
     setLoading(true);
+    setScanTotal(0);
+    setScannedCount(0);
     try {
       await invoke("scan_ports_stream");
     } catch (err) {
@@ -75,8 +79,12 @@ function App() {
     if (!(window as any).__TAURI_INTERNALS__) return;
 
     const unlistenPromise = Promise.all([
+      listen<number>("scan-start", (event) => {
+        setScanTotal(event.payload);
+      }),
       listen<PortService>("port-found", (event) => {
         setServices((prev) => [...prev, event.payload]);
+        setScannedCount((prev) => prev + 1);
       }),
       listen("scan-complete", () => {
         setLoading(false);
@@ -85,7 +93,7 @@ function App() {
     ]);
 
     return () => {
-      unlistenPromise.then(([u1, u2]) => { u1(); u2(); });
+      unlistenPromise.then(([u1, u2, u3]) => { u1(); u2(); u3(); });
     };
   }, []);
 
@@ -267,6 +275,8 @@ function App() {
             services={filtered}
             selected={selected}
             loading={loading}
+            scanTotal={scanTotal}
+            scannedCount={scannedCount}
             hasFilter={search !== "" || filter !== "all"}
             onSelect={(s) => {
               rowClickedRef.current = true;

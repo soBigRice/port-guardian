@@ -98,6 +98,9 @@ pub fn scan_ports() -> Result<Vec<PortService>, String> {
 pub async fn scan_ports_stream(app: AppHandle) -> Result<(), String> {
     let ports = port_scanner::scan_listening_ports()?;
     let current_user = whoami::username();
+    let total = ports.len();
+
+    let _ = app.emit("scan-start", total);
 
     for port_info in ports {
         let process = match process_resolver::resolve_process(port_info.pid) {
