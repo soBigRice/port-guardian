@@ -14,7 +14,12 @@ export default function Settings({ theme, onThemeChange, onClose }: Props) {
       <div className="dialog settings-dialog" onClick={(e) => e.stopPropagation()}>
         <div className="settings-header">
           <h3>设置</h3>
-          <span className="version-tag">v{VERSION}</span>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <span className="version-tag">v{VERSION}</span>
+            <button className="btn btn-icon" onClick={onClose} title="关闭">
+              &#10005;
+            </button>
+          </div>
         </div>
 
         <div className="settings-section">
@@ -68,9 +73,6 @@ export default function Settings({ theme, onThemeChange, onClose }: Props) {
           </div>
         </div>
 
-        <div className="dialog-actions">
-          <button className="btn" onClick={onClose}>关闭</button>
-        </div>
       </div>
     </div>
   );
