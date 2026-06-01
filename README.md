@@ -245,6 +245,14 @@ npm run tauri build
 - 解决方案：执行 `touch <App>.app`，清理用户态图标缓存（`com.apple.dock.iconcache`、`com.apple.iconservices.store`），重启 `Finder` / `Dock` / `iconservicesagent`，并对目标 `.app` 执行 `lsregister -f` 重新注册；必要时生成新文件名的 `.app`（如 `Port Guardian Fresh.app`）绕过旧缓存索引。
 - 后续注意点：图标改动验收时，优先以“包内 `icon.icns` 校验 + 新文件名 `.app` 启动验证”作为准则，再做系统缓存刷新，避免重复排查图像本身。
 
+#### 2026-06-01：GitHub Actions macOS 发布任务在 Rust 安装阶段失败
+
+- 问题描述：`release (macos-latest, universal-apple-darwin)` 在 `Install Rust stable` 步骤直接失败。
+- 出现原因：将 `universal-apple-darwin` 误当作 `rustup target` 安装；该值是 Tauri 构建目标，不是可下载的 `rust-std` 目标。
+- 影响范围：macOS 发行包无法构建；Windows 任务可继续运行，导致同一 release 产物不完整。
+- 解决方案：工作流中增加 `rust_targets`，macOS 安装 `aarch64-apple-darwin,x86_64-apple-darwin`，Windows 安装 `x86_64-pc-windows-msvc`；`tauri-action` 仍使用 `--target universal-apple-darwin`。
+- 后续注意点：CI 中区分“构建目标（Tauri/Cargo args）”与“Rust 标准库目标（rustup targets）”，不要直接复用同一个字段。
+
 ---
 
 ## 📦 依赖说明
