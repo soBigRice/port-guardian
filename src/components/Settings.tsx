@@ -12,16 +12,15 @@ export default function Settings({ theme, onThemeChange, onClose }: Props) {
   return (
     <div className="dialog-overlay" onClick={onClose}>
       <div className="dialog settings-dialog" onClick={(e) => e.stopPropagation()}>
-        <div className="settings-header">
-          <h3>设置</h3>
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <span className="version-tag">v{VERSION}</span>
-            <button className="btn btn-icon" onClick={onClose} title="关闭">
-              &#10005;
-            </button>
+        <div className="settings-titlebar">
+          <div className="traffic-lights">
+            <span className="traffic-light red" onClick={onClose} title="关闭">&times;</span>
           </div>
+          <span className="settings-titlebar-text">设置</span>
+          <span className="version-tag">v{VERSION}</span>
         </div>
 
+        <div className="settings-content">
         <div className="settings-section">
           <h4>外观</h4>
           <div className="settings-row">
@@ -71,6 +70,7 @@ export default function Settings({ theme, onThemeChange, onClose }: Props) {
               <li><strong>未知</strong>：无法识别，需手动判断</li>
             </ul>
           </div>
+        </div>
         </div>
 
       </div>
