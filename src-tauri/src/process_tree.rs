@@ -321,7 +321,7 @@ fn parse_ps_line(line: &str) -> Result<(u32, String, String, String), String> {
 
     // 提取 PID
     let (pid_str, rest) = extract_field(remaining);
-    let ppid: u32 = pid_str.trim().parse().map_err(|_| "bad pid")?;
+    let _pid: u32 = pid_str.trim().parse().map_err(|_| "bad pid")?;
     remaining = rest;
 
     // 提取 PPID

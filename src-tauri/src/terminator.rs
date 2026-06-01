@@ -82,17 +82,4 @@ pub fn is_process_alive(pid: u32) -> bool {
     }
 }
 
-/// 检查端口是否仍然被监听
-pub fn is_port_listening(port: u16) -> bool {
-    let output = Command::new("lsof")
-        .args(["-nP", "-iTCP", &format!(":{}", port), "-sTCP:LISTEN"])
-        .output();
 
-    match output {
-        Ok(out) => {
-            let stdout = String::from_utf8_lossy(&out.stdout);
-            stdout.lines().count() > 1 // 第一行是表头
-        }
-        Err(_) => false,
-    }
-}
