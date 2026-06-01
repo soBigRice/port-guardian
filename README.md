@@ -261,6 +261,22 @@ npm run tauri build
 - 解决方案：按平台补充 `bundles` 矩阵字段，macOS 使用 `app,dmg`，Windows 使用 `nsis`，并将 action 参数改为 `--target ... --bundles ...`。
 - 后续注意点：看到 “Built application at .../release/<bin>” 不代表已生成发布产物，需确认有 `bundle/*` 目录与安装包文件。
 
+#### 2026-06-01：软件更新检查无效（始终无更新或静默失败）
+
+- 问题描述：应用内点击“检查更新”后无明显结果，更新弹窗不出现。
+- 出现原因：多因素叠加：① 发布工作流使用 `releaseDraft: true`，`releases/latest/download/latest.json` 不可用；② 仓库为私有仓库时，客户端匿名请求 GitHub Release 资源会返回 404；③ 界面版本号写死 `0.1.0`，容易误判当前版本状态；④ 更新检查异常被吞掉，UI 无错误态反馈。
+- 影响范围：自动更新链路不可用，用户无法通过内置更新拿到新版本。
+- 解决方案：工作流改为发布正式 Release（非 Draft），CI 构建时按 tag 同步 `package.json` 与 `tauri.conf.json` 的版本号，前端版本号改为运行时读取，并在更新检查失败时显示错误状态。
+- 后续注意点：若继续使用私有仓库发布，需要提供可鉴权更新源；若使用 GitHub `latest.json` 直链，建议使用公开仓库或自建更新分发服务。
+
+#### 2026-06-01：Updater 产物未生成导致更新元数据缺失
+
+- 问题描述：发布流程存在安装包，但更新元数据/签名产物不完整，客户端更新检查不可用。
+- 出现原因：`tauri.conf.json` 未显式开启 `bundle.createUpdaterArtifacts`，默认值为 `false`。
+- 影响范围：无法稳定产出 `latest.json` 与对应签名链路，Updater 依赖文件缺失。
+- 解决方案：在 `bundle` 配置中启用 `"createUpdaterArtifacts": "v1Compatible"`，与当前 `latest.json` 端点格式保持一致。
+- 后续注意点：每次调整发布流程后，需验证 Release 中是否包含 `latest.json`、平台安装包和签名文件三类关键产物。
+
 ---
 
 ## 📦 依赖说明

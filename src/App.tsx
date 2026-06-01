@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { getVersion } from "@tauri-apps/api/app";
 import { check, type Update } from "@tauri-apps/plugin-updater";
 import { PortService, Theme } from "./types";
 import PortTable from "./components/PortTable";
@@ -10,7 +11,7 @@ import SearchBar from "./components/SearchBar";
 import Settings from "./components/Settings";
 import UpdateChecker from "./components/UpdateChecker";
 
-const VERSION = "0.1.0";
+const FALLBACK_VERSION = "0.1.0";
 
 function getInitialTheme(): Theme {
   const saved = localStorage.getItem("pg-theme") as Theme;
@@ -39,6 +40,7 @@ function App() {
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
   const [showSettings, setShowSettings] = useState(false);
   const [theme, setTheme] = useState<Theme>(getInitialTheme);
+  const [appVersion, setAppVersion] = useState(FALLBACK_VERSION);
   const [updateInfo, setUpdateInfo] = useState<Update | null>(null);
   const [showUpdate, setShowUpdate] = useState(false);
   const [scanTotal, setScanTotal] = useState(0);
@@ -58,6 +60,19 @@ function App() {
       return () => mq.removeEventListener("change", handler);
     }
   }, [theme]);
+
+  // 从 Tauri 读取真实应用版本，避免界面版本号写死
+  useEffect(() => {
+    if (!(window as any).__TAURI_INTERNALS__) return;
+    (async () => {
+      try {
+        const runtimeVersion = await getVersion();
+        setAppVersion(runtimeVersion);
+      } catch (err) {
+        console.warn("读取应用版本失败，使用默认版本号:", err);
+      }
+    })();
+  }, []);
 
   // 流式扫描：逐个接收端口结果
   const refresh = useCallback(async () => {
@@ -177,8 +192,9 @@ function App() {
         setShowUpdate(true);
       }
       return !!update;
-    } catch {
-      return false;
+    } catch (err) {
+      console.error("检查更新失败:", err);
+      throw err;
     }
   }, []);
 
@@ -199,7 +215,7 @@ function App() {
       <header className="header">
         <div className="header-left">
           <h1 className="title">Port Guardian</h1>
-          <span className="subtitle">v{VERSION}</span>
+          <span className="subtitle">v{appVersion}</span>
         </div>
         <div className="header-stats">
           <span className="stat">
@@ -304,12 +320,13 @@ function App() {
         />
       )}
 
-      {showSettings && (
-        <Settings
-          theme={theme}
-          onThemeChange={setTheme}
-          onClose={() => setShowSettings(false)}
-          onCheckUpdate={handleCheckUpdate}
+        {showSettings && (
+          <Settings
+            version={appVersion}
+            theme={theme}
+            onThemeChange={setTheme}
+            onClose={() => setShowSettings(false)}
+            onCheckUpdate={handleCheckUpdate}
         />
       )}
 

@@ -2,17 +2,16 @@ import { useState } from "react";
 import { Theme } from "../types";
 
 interface Props {
+  version: string;
   theme: Theme;
   onThemeChange: (t: Theme) => void;
   onClose: () => void;
   onCheckUpdate: () => Promise<boolean>;
 }
 
-const VERSION = "0.1.0";
-
-export default function Settings({ theme, onThemeChange, onClose, onCheckUpdate }: Props) {
+export default function Settings({ version, theme, onThemeChange, onClose, onCheckUpdate }: Props) {
   const [checking, setChecking] = useState(false);
-  const [updateStatus, setUpdateStatus] = useState<"idle" | "latest" | "found">("idle");
+  const [updateStatus, setUpdateStatus] = useState<"idle" | "latest" | "found" | "error">("idle");
 
   async function handleCheck() {
     setChecking(true);
@@ -21,7 +20,7 @@ export default function Settings({ theme, onThemeChange, onClose, onCheckUpdate 
       const found = await onCheckUpdate();
       setUpdateStatus(found ? "found" : "latest");
     } catch {
-      setUpdateStatus("idle");
+      setUpdateStatus("error");
     } finally {
       setChecking(false);
     }
@@ -34,7 +33,7 @@ export default function Settings({ theme, onThemeChange, onClose, onCheckUpdate 
             <span className="traffic-light red" onClick={onClose} title="关闭">&times;</span>
           </div>
           <span className="settings-titlebar-text">设置</span>
-          <span className="version-tag">v{VERSION}</span>
+          <span className="version-tag">v{version}</span>
         </div>
 
         <div className="settings-content">
@@ -64,7 +63,7 @@ export default function Settings({ theme, onThemeChange, onClose, onCheckUpdate 
           </div>
           <div className="settings-row">
             <span className="settings-label">版本</span>
-            <span className="settings-value">{VERSION}</span>
+            <span className="settings-value">{version}</span>
           </div>
           <div className="settings-row">
             <span className="settings-label">技术栈</span>
@@ -80,6 +79,11 @@ export default function Settings({ theme, onThemeChange, onClose, onCheckUpdate 
               {updateStatus === "latest" && (
                 <span className="settings-value" style={{ color: "var(--safe)", fontSize: 12 }}>
                   已是最新版本
+                </span>
+              )}
+              {updateStatus === "error" && (
+                <span className="settings-value" style={{ color: "var(--danger)", fontSize: 12 }}>
+                  更新检查失败
                 </span>
               )}
               <button
