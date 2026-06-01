@@ -25,13 +25,20 @@ export default function PortTable({ services, selected, loading, hasFilter, onSe
   if (services.length === 0) {
     return (
       <div className="empty-state">
-        <span className="icon">{loading ? "&#9881;" : "&#128269;"}</span>
+        <span className={`icon ${loading ? "scanning" : ""}`}>{loading ? "&#9881;" : "&#128269;"}</span>
         <span>{loading ? "正在扫描端口..." : hasFilter ? "没有匹配的服务" : "未发现监听端口"}</span>
+        {loading && <div className="scanning-bar"><div className="scanning-bar-fill" /></div>}
       </div>
     );
   }
 
   return (
+    <div className="table-wrapper">
+      {loading && (
+        <div className="scanning-overlay">
+          <div className="scanning-bar"><div className="scanning-bar-fill" /></div>
+        </div>
+      )}
     <table className="port-table">
       <thead>
         <tr>
@@ -106,5 +113,6 @@ export default function PortTable({ services, selected, loading, hasFilter, onSe
         ))}
       </tbody>
     </table>
+    </div>
   );
 }

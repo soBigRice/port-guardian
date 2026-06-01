@@ -519,6 +519,64 @@ body {
   opacity: 0.3;
 }
 
+.empty-state .icon.scanning {
+  animation: spin 1.2s linear infinite;
+  opacity: 0.6;
+  color: var(--accent);
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Scanning bar animation */
+.scanning-bar {
+  width: 200px;
+  height: 3px;
+  background: var(--border);
+  border-radius: 2px;
+  overflow: hidden;
+  margin-top: 8px;
+}
+
+.scanning-bar-fill {
+  width: 40%;
+  height: 100%;
+  background: var(--accent);
+  border-radius: 2px;
+  animation: scanning-slide 1.2s ease-in-out infinite;
+}
+
+@keyframes scanning-slide {
+  0% { transform: translateX(-100%); }
+  50% { transform: translateX(150%); }
+  100% { transform: translateX(-100%); }
+}
+
+/* Table wrapper for overlay positioning */
+.table-wrapper {
+  position: relative;
+  flex: 1;
+  overflow: auto;
+}
+
+/* Scanning overlay on existing table */
+.scanning-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 5;
+  pointer-events: none;
+}
+
+.scanning-overlay .scanning-bar {
+  width: 100%;
+  height: 2px;
+  border-radius: 0;
+  margin: 0;
+}
+
 /* Scrollbar */
 ::-webkit-scrollbar {
   width: 6px;
