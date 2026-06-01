@@ -1,5 +1,7 @@
+import { invoke } from "@tauri-apps/api/core";
 import { PortService } from "../types";
 import RiskBadge from "./RiskBadge";
+import SourceIcon from "./SourceIcon";
 
 interface Props {
   service: PortService;
@@ -10,6 +12,14 @@ export default function ServiceDetail({ service, onKill }: Props) {
   const shortCwd = service.cwd
     ? service.cwd.replace(/^\/Users\/[^/]+/, "~")
     : "";
+
+  const handleOpenPath = async (path: string) => {
+    try {
+      await invoke("open_directory", { path });
+    } catch (e) {
+      console.error("打开目录失败:", e);
+    }
+  };
 
   return (
     <div className="detail-panel">
@@ -55,7 +65,13 @@ export default function ServiceDetail({ service, onKill }: Props) {
         {service.executable_path && (
           <div className="detail-row">
             <span className="detail-label">可执行文件</span>
-            <span className="detail-value long">{service.executable_path}</span>
+            <span
+              className="detail-value long clickable-path"
+              title="点击打开所在目录"
+              onClick={() => handleOpenPath(service.executable_path)}
+            >
+              {service.executable_path}
+            </span>
           </div>
         )}
         <div className="detail-row">
@@ -65,7 +81,13 @@ export default function ServiceDetail({ service, onKill }: Props) {
         {shortCwd && (
           <div className="detail-row">
             <span className="detail-label">工作目录</span>
-            <span className="detail-value long">{shortCwd}</span>
+            <span
+              className="detail-value long clickable-path"
+              title="点击打开目录"
+              onClick={() => handleOpenPath(service.cwd)}
+            >
+              {shortCwd}
+            </span>
           </div>
         )}
       </div>
@@ -74,7 +96,9 @@ export default function ServiceDetail({ service, onKill }: Props) {
         <h4>来源信息</h4>
         <div className="detail-row">
           <span className="detail-label">来源</span>
-          <span className="detail-value">{service.source}</span>
+          <span className="detail-value">
+            <SourceIcon source={service.source} size={16} />{service.source}
+          </span>
         </div>
         {service.parent_chain.length > 0 && (
           <div style={{ marginTop: 6 }}>

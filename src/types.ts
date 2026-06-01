@@ -57,6 +57,7 @@ export interface PortService {
   cwd: string;
   user: string;
   parent_chain: ProcessNode[];
+  source: string;
   service_type: ServiceType;
   service_name: string;
   safety_level: SafetyLevel;

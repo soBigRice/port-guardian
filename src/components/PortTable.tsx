@@ -1,5 +1,7 @@
+import { invoke } from "@tauri-apps/api/core";
 import { PortService } from "../types";
 import RiskBadge from "./RiskBadge";
+import SourceIcon from "./SourceIcon";
 
 interface Props {
   services: PortService[];
@@ -11,6 +13,15 @@ interface Props {
 }
 
 export default function PortTable({ services, selected, loading, hasFilter, onSelect, onKill }: Props) {
+  const handleOpenCwd = async (e: React.MouseEvent, cwd: string) => {
+    e.stopPropagation();
+    try {
+      await invoke("open_directory", { path: cwd });
+    } catch (err) {
+      console.error("打开目录失败:", err);
+    }
+  };
+
   if (services.length === 0) {
     return (
       <div className="empty-state">
@@ -50,11 +61,15 @@ export default function PortTable({ services, selected, loading, hasFilter, onSe
             </td>
             <td>{s.process_name}</td>
             <td className="pid-num">{s.pid}</td>
-            <td>{s.source}</td>
+            <td><SourceIcon source={s.source} />{s.source}</td>
             <td className="cmd-text" title={s.command_line}>
               {s.command_line}
             </td>
-            <td className="cwd-text" title={s.cwd}>
+            <td
+              className="cwd-text clickable-path"
+              title={s.cwd ? `点击打开: ${s.cwd}` : ""}
+              onClick={s.cwd ? (e) => handleOpenCwd(e, s.cwd) : undefined}
+            >
               {s.cwd ? s.cwd.replace(/^\/Users\/[^/]+/, "~") : ""}
             </td>
             <td>

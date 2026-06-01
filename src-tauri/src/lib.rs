@@ -6,7 +6,7 @@ mod safety_checker;
 mod terminator;
 mod commands;
 
-use commands::{scan_ports, get_process_detail, terminate_process};
+use commands::{scan_ports, get_process_detail, terminate_process, open_directory, get_source_icon};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -17,6 +17,8 @@ pub fn run() {
             scan_ports,
             get_process_detail,
             terminate_process,
+            open_directory,
+            get_source_icon,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

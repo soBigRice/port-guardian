@@ -11,7 +11,6 @@ export default function ConfirmKillDialog({ service, onConfirm, onCancel }: Prop
   const [confirmText, setConfirmText] = useState("");
   const isDanger = service.safety_level === "danger";
   const isCaution = service.safety_level === "caution" || service.safety_level === "unknown";
-  const isSafe = service.safety_level === "safe";
 
   const shortCwd = service.cwd
     ? service.cwd.replace(/^\/Users\/[^/]+/, "~")

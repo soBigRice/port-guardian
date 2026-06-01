@@ -528,6 +528,18 @@ body {
   background: var(--text-muted);
 }
 
+/* Clickable path */
+.clickable-path {
+  cursor: pointer;
+  color: var(--accent);
+  transition: color 0.15s;
+}
+
+.clickable-path:hover {
+  color: var(--accent-hover);
+  text-decoration: underline;
+}
+
 /* ── Icon button (settings gear etc.) ── */
 .btn-icon {
   width: 32px;
