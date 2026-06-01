@@ -1,11 +1,13 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { check, type Update } from "@tauri-apps/plugin-updater";
 import { PortService, Theme } from "./types";
 import PortTable from "./components/PortTable";
 import ServiceDetail from "./components/ServiceDetail";
 import ConfirmKillDialog from "./components/ConfirmKillDialog";
 import SearchBar from "./components/SearchBar";
 import Settings from "./components/Settings";
+import UpdateChecker from "./components/UpdateChecker";
 
 const VERSION = "0.1.0";
 
@@ -36,6 +38,8 @@ function App() {
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
   const [showSettings, setShowSettings] = useState(false);
   const [theme, setTheme] = useState<Theme>(getInitialTheme);
+  const [updateInfo, setUpdateInfo] = useState<Update | null>(null);
+  const [showUpdate, setShowUpdate] = useState(false);
   const rowClickedRef = useRef(false);
 
   // 应用主题
@@ -139,6 +143,19 @@ function App() {
   const dangerCount = services.filter((s) => s.safety_level === "danger").length;
 
   const isTauri = !!(window as any).__TAURI_INTERNALS__;
+
+  const handleCheckUpdate = useCallback(async () => {
+    try {
+      const update = await check();
+      if (update) {
+        setUpdateInfo(update);
+        setShowUpdate(true);
+      }
+      return !!update;
+    } catch {
+      return false;
+    }
+  }, []);
 
   return (
     <div className="app">
@@ -265,6 +282,19 @@ function App() {
           theme={theme}
           onThemeChange={setTheme}
           onClose={() => setShowSettings(false)}
+          onCheckUpdate={handleCheckUpdate}
+        />
+      )}
+
+      {isTauri && (
+        <UpdateChecker
+          show={showUpdate}
+          updateInfo={updateInfo}
+          onUpdateFound={(update) => {
+            setUpdateInfo(update);
+            setShowUpdate(true);
+          }}
+          onClose={() => setShowUpdate(false)}
         />
       )}
     </div>

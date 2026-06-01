@@ -1,14 +1,31 @@
+import { useState } from "react";
 import { Theme } from "../types";
 
 interface Props {
   theme: Theme;
   onThemeChange: (t: Theme) => void;
   onClose: () => void;
+  onCheckUpdate: () => Promise<boolean>;
 }
 
 const VERSION = "0.1.0";
 
-export default function Settings({ theme, onThemeChange, onClose }: Props) {
+export default function Settings({ theme, onThemeChange, onClose, onCheckUpdate }: Props) {
+  const [checking, setChecking] = useState(false);
+  const [updateStatus, setUpdateStatus] = useState<"idle" | "latest" | "found">("idle");
+
+  async function handleCheck() {
+    setChecking(true);
+    setUpdateStatus("idle");
+    try {
+      const found = await onCheckUpdate();
+      setUpdateStatus(found ? "found" : "latest");
+    } catch {
+      setUpdateStatus("idle");
+    } finally {
+      setChecking(false);
+    }
+  }
   return (
     <div className="dialog-overlay" onClick={onClose}>
       <div className="dialog settings-dialog" onClick={(e) => e.stopPropagation()}>
@@ -56,6 +73,24 @@ export default function Settings({ theme, onThemeChange, onClose }: Props) {
           <div className="settings-row">
             <span className="settings-label">平台</span>
             <span className="settings-value">macOS</span>
+          </div>
+          <div className="settings-row">
+            <span className="settings-label">更新</span>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              {updateStatus === "latest" && (
+                <span className="settings-value" style={{ color: "var(--safe)", fontSize: 12 }}>
+                  已是最新版本
+                </span>
+              )}
+              <button
+                className="btn btn-refresh"
+                onClick={handleCheck}
+                disabled={checking}
+                style={{ padding: "4px 12px", fontSize: 12 }}
+              >
+                {checking ? "检查中..." : "检查更新"}
+              </button>
+            </div>
           </div>
         </div>
 
