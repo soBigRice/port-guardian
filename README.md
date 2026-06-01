@@ -253,6 +253,14 @@ npm run tauri build
 - 解决方案：工作流中增加 `rust_targets`，macOS 安装 `aarch64-apple-darwin,x86_64-apple-darwin`，Windows 安装 `x86_64-pc-windows-msvc`；`tauri-action` 仍使用 `--target universal-apple-darwin`。
 - 后续注意点：CI 中区分“构建目标（Tauri/Cargo args）”与“Rust 标准库目标（rustup targets）”，不要直接复用同一个字段。
 
+#### 2026-06-01：GitHub Actions 构建成功但上传产物失败（No artifacts were found）
+
+- 问题描述：`Build with Tauri` 日志显示 Rust 编译完成，但步骤末尾报错 `No artifacts were found`。
+- 出现原因：工作流只传了 `--target`，未显式传 `--bundles`；在当前配置下不会产出可上传的安装包/更新包文件。
+- 影响范围：macOS/Windows 发布流程会在上传资源阶段失败，Release 无法附带安装包。
+- 解决方案：按平台补充 `bundles` 矩阵字段，macOS 使用 `app,dmg`，Windows 使用 `nsis`，并将 action 参数改为 `--target ... --bundles ...`。
+- 后续注意点：看到 “Built application at .../release/<bin>” 不代表已生成发布产物，需确认有 `bundle/*` 目录与安装包文件。
+
 ---
 
 ## 📦 依赖说明
