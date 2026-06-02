@@ -10,6 +10,7 @@ import ConfirmKillDialog from "./components/ConfirmKillDialog";
 import SearchBar from "./components/SearchBar";
 import Settings from "./components/Settings";
 import UpdateChecker from "./components/UpdateChecker";
+import { formatUpdateError } from "./utils/updateErrors";
 
 const FALLBACK_VERSION = "0.1.0";
 
@@ -98,6 +99,7 @@ function App() {
   const [theme, setTheme] = useState<Theme>(getInitialTheme);
   const [appVersion, setAppVersion] = useState(FALLBACK_VERSION);
   const [updateInfo, setUpdateInfo] = useState<Update | null>(null);
+  const [updateError, setUpdateError] = useState<string | null>(null);
   const [showUpdate, setShowUpdate] = useState(false);
   const [scanTotal, setScanTotal] = useState(0);
   const [scannedCount, setScannedCount] = useState(0);
@@ -305,18 +307,29 @@ function App() {
   const isTauri = !!(window as any).__TAURI_INTERNALS__;
 
   const handleCheckUpdate = useCallback(async () => {
+    if (!isTauri) {
+      const message = "当前浏览器预览环境不能检查更新，请在 Tauri 应用内重试。";
+      setUpdateError(message);
+      throw new Error(message);
+    }
+
+    setUpdateError(null);
     try {
       const update = await check();
       if (update) {
         setUpdateInfo(update);
         setShowUpdate(true);
+      } else {
+        setUpdateInfo(null);
       }
       return !!update;
     } catch (err) {
+      const message = formatUpdateError(err);
+      setUpdateError(message);
       console.error("检查更新失败:", err);
-      throw err;
+      throw new Error(message);
     }
-  }, []);
+  }, [isTauri]);
 
   return (
     <div className="app">
@@ -434,6 +447,7 @@ function App() {
           <Settings
             version={appVersion}
             theme={theme}
+            updateError={updateError}
             onThemeChange={setTheme}
             onClose={() => setShowSettings(false)}
             onCheckUpdate={handleCheckUpdate}
@@ -444,10 +458,7 @@ function App() {
         <UpdateChecker
           show={showUpdate}
           updateInfo={updateInfo}
-          onUpdateFound={(update) => {
-            setUpdateInfo(update);
-            setShowUpdate(true);
-          }}
+          onAutoCheck={handleCheckUpdate}
           onClose={() => setShowUpdate(false)}
         />
       )}

@@ -796,6 +796,22 @@ body {
   font-family: "SF Mono", "Fira Code", monospace;
 }
 
+.update-status-message {
+  max-width: 190px;
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.update-status-message.success {
+  color: var(--safe);
+}
+
+.update-status-message.error {
+  color: var(--danger);
+}
+
 .theme-options {
   display: flex;
   gap: 4px;
@@ -935,6 +951,18 @@ body {
 
 .update-progress {
   margin-bottom: 16px;
+}
+
+.update-error {
+  margin-bottom: 16px;
+  padding: 10px 12px;
+  border: 1px solid var(--danger);
+  border-radius: 8px;
+  background: var(--danger-bg);
+  color: var(--danger);
+  font-size: 12px;
+  line-height: 1.5;
+  text-align: left;
 }
 
 .progress-bar {

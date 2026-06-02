@@ -309,6 +309,14 @@ npm run tauri build
 - 解决方案：构建任务先上传到 Draft Release，并限制矩阵发布串行；所有平台资产上传完成后，再由独立 `publish-release` job 校验关键资产并公开发布。
 - 后续注意点：需要向同一个 Release 追加多平台资产时，优先使用 Draft 聚合产物，最后统一发布；不要先公开再上传。
 
+#### 2026-06-02：Draft Release 无法通过 tag 详情接口查询
+
+- 问题描述：`publish-release` job 在资产已上传到 Draft Release 后仍失败，导致 Release 没有自动公开。
+- 出现原因：GitHub 的 `releases/tags/<tag>` 接口不会稳定返回 Draft Release；脚本用该接口查 `v0.1.7` 时拿不到刚创建的 Draft。
+- 影响范围：安装包和 `latest.json` 已上传但仍停留在 Draft，客户端匿名更新检查继续 404。
+- 解决方案：发布脚本改为调用 `releases?per_page=100` 列表接口，再按 `tag_name` 找到对应 Draft/Release 后校验资产并 PATCH 公开。
+- 后续注意点：涉及 Draft Release 的自动化不要依赖 tag 详情接口，优先从 release list 中筛选。
+
 ---
 
 ## 📦 依赖说明

@@ -4,6 +4,7 @@ import { Theme } from "../types";
 interface Props {
   version: string;
   theme: Theme;
+  updateError: string | null;
   onThemeChange: (t: Theme) => void;
   onClose: () => void;
   onCheckUpdate: () => Promise<boolean>;
@@ -22,17 +23,20 @@ function isWindows(): boolean {
   return p.includes("Win") || p.includes("win");
 }
 
-export default function Settings({ version, theme, onThemeChange, onClose, onCheckUpdate }: Props) {
+export default function Settings({ version, theme, updateError, onThemeChange, onClose, onCheckUpdate }: Props) {
   const [checking, setChecking] = useState(false);
   const [updateStatus, setUpdateStatus] = useState<"idle" | "latest" | "found" | "error">("idle");
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   async function handleCheck() {
     setChecking(true);
     setUpdateStatus("idle");
+    setErrorMessage(null);
     try {
       const found = await onCheckUpdate();
       setUpdateStatus(found ? "found" : "latest");
-    } catch {
+    } catch (err) {
+      setErrorMessage(err instanceof Error ? err.message : String(err));
       setUpdateStatus("error");
     } finally {
       setChecking(false);
@@ -100,13 +104,18 @@ export default function Settings({ version, theme, onThemeChange, onClose, onChe
             <span className="settings-label">更新</span>
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
               {updateStatus === "latest" && (
-                <span className="settings-value" style={{ color: "var(--safe)", fontSize: 12 }}>
+                <span className="settings-value update-status-message success">
                   已是最新版本
                 </span>
               )}
+              {updateStatus === "found" && (
+                <span className="settings-value update-status-message success">
+                  发现新版本
+                </span>
+              )}
               {updateStatus === "error" && (
-                <span className="settings-value" style={{ color: "var(--danger)", fontSize: 12 }}>
-                  更新检查失败
+                <span className="settings-value update-status-message error" title={errorMessage || updateError || undefined}>
+                  {errorMessage || updateError || "更新检查失败"}
                 </span>
               )}
               <button

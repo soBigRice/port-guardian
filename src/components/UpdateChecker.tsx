@@ -1,38 +1,35 @@
 import { useState, useEffect } from "react";
-import { check, type Update } from "@tauri-apps/plugin-updater";
+import { type Update } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
+import { formatUpdateError } from "../utils/updateErrors";
 
 interface Props {
   show: boolean;
   updateInfo: Update | null;
-  onUpdateFound: (update: Update) => void;
+  onAutoCheck: () => Promise<boolean>;
   onClose: () => void;
 }
 
-export default function UpdateChecker({ show, updateInfo, onUpdateFound, onClose }: Props) {
+export default function UpdateChecker({ show, updateInfo, onAutoCheck, onClose }: Props) {
   const [downloading, setDownloading] = useState(false);
   const [progress, setProgress] = useState(0);
   const [totalSize, setTotalSize] = useState(0);
   const [installed, setInstalled] = useState(false);
+  const [downloadError, setDownloadError] = useState<string | null>(null);
 
   // 启动时静默检查
   useEffect(() => {
-    (async () => {
-      try {
-        const update = await check();
-        if (update) {
-          onUpdateFound(update);
-        }
-      } catch (err) {
-        console.log("更新检查失败:", err);
-      }
-    })();
-  }, []);
+    void onAutoCheck().catch((err) => {
+      console.log("更新检查失败:", err);
+    });
+  }, [onAutoCheck]);
 
   async function handleDownload() {
     if (!updateInfo) return;
     setDownloading(true);
     setProgress(0);
+    setTotalSize(0);
+    setDownloadError(null);
 
     try {
       await updateInfo.downloadAndInstall((event) => {
@@ -51,8 +48,9 @@ export default function UpdateChecker({ show, updateInfo, onUpdateFound, onClose
       });
       setInstalled(true);
     } catch (err) {
+      const message = formatUpdateError(err);
+      setDownloadError(message);
       console.error("下载更新失败:", err);
-      alert(`更新下载失败: ${err}`);
     } finally {
       setDownloading(false);
     }
@@ -105,6 +103,12 @@ export default function UpdateChecker({ show, updateInfo, onUpdateFound, onClose
                 ? `${formatBytes(progress)} / ${formatBytes(totalSize)}`
                 : "正在下载..."}
             </span>
+          </div>
+        )}
+
+        {downloadError && (
+          <div className="update-error" title={downloadError}>
+            {downloadError}
           </div>
         )}
 

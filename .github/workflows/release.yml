@@ -127,7 +127,19 @@ jobs:
             -H "X-GitHub-Api-Version: 2022-11-28"
           )
 
-          release_json="$(curl -fsSL "${headers[@]}" "${api}/releases/tags/${GITHUB_REF_NAME}")"
+          release_json="$(
+            curl -fsSL "${headers[@]}" "${api}/releases?per_page=100" |
+              GITHUB_REF_NAME="${GITHUB_REF_NAME}" node -e '
+                const fs = require("fs");
+                const releases = JSON.parse(fs.readFileSync(0, "utf8"));
+                const release = releases.find((item) => item.tag_name === process.env.GITHUB_REF_NAME);
+                if (!release) {
+                  console.error(`Cannot find draft release for ${process.env.GITHUB_REF_NAME}.`);
+                  process.exit(1);
+                }
+                console.log(JSON.stringify(release));
+              '
+          )"
           release_id="$(node -e 'const fs = require("fs"); const release = JSON.parse(fs.readFileSync(0, "utf8")); if (!release.id) process.exit(1); console.log(release.id);' <<< "$release_json")"
 
           assets_json="$(curl -fsSL "${headers[@]}" "${api}/releases/${release_id}/assets?per_page=100")"
