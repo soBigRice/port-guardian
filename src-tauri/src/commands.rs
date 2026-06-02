@@ -188,16 +188,41 @@ pub fn terminate_process(pid: u32, force: bool) -> Result<TerminateResult, Strin
     if force {
         Ok(terminator::force_terminate(pid))
     } else {
-        let mut result = terminator::terminate(pid);
+        let result = terminator::terminate(pid);
         if result.success {
             // 等待 500ms 后检查进程是否已退出
             std::thread::sleep(std::time::Duration::from_millis(500));
+            let mut result = result;
             if !terminator::is_process_alive(pid) {
                 result.port_released = true;
                 result.message = format!("进程 {} 已成功终止", pid);
             }
+            Ok(result)
+        } else {
+            // Windows: 普通 taskkill 经常失败（WM_CLOSE 对控制台进程无效），
+            // 自动回退到强制终止 taskkill /F
+            let force_result = terminator::force_terminate(pid);
+            if force_result.success {
+                std::thread::sleep(std::time::Duration::from_millis(300));
+                let mut force_result = force_result;
+                if !terminator::is_process_alive(pid) {
+                    force_result.port_released = true;
+                    force_result.message = format!("进程 {} 已强制终止", pid);
+                }
+                Ok(force_result)
+            } else {
+                // 两次都失败，返回更有用的错误提示
+                let mut msg = force_result.message;
+                if msg.contains("Access") || msg.contains("拒绝") || msg.contains("denied") {
+                    msg = format!("{}（请尝试以管理员身份运行本工具）", msg);
+                }
+                Ok(TerminateResult {
+                    success: false,
+                    message: msg,
+                    port_released: false,
+                })
+            }
         }
-        Ok(result)
     }
 }
 
