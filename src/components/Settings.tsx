@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { Theme } from "../types";
 
+const PROJECT_URL = "https://github.com/soBigRice/port-guardian";
+
 interface Props {
   version: string;
   theme: Theme;
@@ -99,6 +101,18 @@ export default function Settings({ version, theme, updateError, onThemeChange, o
           <div className="settings-row">
             <span className="settings-label">平台</span>
             <span className="settings-value">{getPlatform()}</span>
+          </div>
+          <div className="settings-row">
+            <span className="settings-label">项目地址</span>
+            <a
+              className="settings-link"
+              href={PROJECT_URL}
+              target="_blank"
+              rel="noreferrer"
+              title={PROJECT_URL}
+            >
+              {PROJECT_URL}
+            </a>
           </div>
           <div className="settings-row">
             <span className="settings-label">更新</span>

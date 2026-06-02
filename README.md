@@ -4,7 +4,7 @@
 
 **开发端口服务识别与安全清理工具**
 
-![Platform](https://img.shields.io/badge/platform-macOS-lightgrey)
+![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Windows-lightgrey)
 ![Tauri](https://img.shields.io/badge/Tauri-2-blue)
 ![React](https://img.shields.io/badge/React-19-61DAFB)
 ![Rust](https://img.shields.io/badge/Rust-2024-orange)
@@ -17,7 +17,7 @@
 
 ## 📖 简介
 
-Port Guardian 是一款基于 [Tauri 2](https://v2.tauri.app/) 构建的 **macOS 桌面应用**，用于一键扫描、识别和安全清理本地占用 TCP 端口的进程。
+Port Guardian 是一款基于 [Tauri 2](https://v2.tauri.app/) 构建的 **macOS / Windows 桌面应用**，用于一键扫描、识别和安全清理本地占用 TCP 端口的进程。
 
 在日常开发中，我们经常遇到"端口被占用"的问题——`EADDRINUSE: address already in use :::3000`。传统做法是手动执行 `lsof -i :3000` 找到 PID 再 `kill`，繁琐且容易误杀系统进程。
 
@@ -146,12 +146,34 @@ port-guardian/
 
 ## 🚀 快速开始
 
+### 下载安装
+
+1. 打开 [GitHub Releases](https://github.com/soBigRice/port-guardian/releases/latest) 页面。
+2. 根据系统下载对应安装包：
+   - macOS：下载 `Port.Guardian_<版本号>_universal.dmg`
+   - Windows：下载 `Port.Guardian_<版本号>_x64-setup.exe`
+3. 安装后启动应用，后续可在应用设置页点击“检查更新”获取新版本。
+
+#### macOS 首次安装打不开的处理
+
+由于当前安装包还没有做 Apple Developer ID 签名/公证，macOS 首次打开时可能提示“无法打开，因为无法验证开发者”或类似安全提示。可以按下面步骤允许打开：
+
+1. 双击 `.dmg`，将 `Port Guardian.app` 拖到“应用程序”文件夹。
+2. 第一次打开如果被系统拦截，先关闭提示窗口。
+3. 打开“系统设置”。
+4. 进入“隐私与安全性”。
+5. 在页面下方“安全性”区域，找到关于 `Port Guardian` 被阻止打开的提示。
+6. 点击“仍要打开”或“Open Anyway”。
+7. 再次确认打开；如果系统要求，输入本机密码或使用 Touch ID。
+
+Windows 若出现 SmartScreen 提示，可点击“更多信息”，确认来源为本项目 Release 后再选择“仍要运行”。
+
 ### 环境要求
 
-- **操作系统**：macOS（当前仅支持 macOS，依赖 `lsof`/`ps`/`kill`）
+- **操作系统**：macOS / Windows
 - **Node.js**：≥ 18
 - **Rust**：≥ 1.85（支持 edition 2024）
-- **Xcode Command Line Tools**
+- **macOS 本地构建**：需要 Xcode Command Line Tools
 
 ### 安装与运行
 

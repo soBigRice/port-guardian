@@ -796,6 +796,22 @@ body {
   font-family: "SF Mono", "Fira Code", monospace;
 }
 
+.settings-link {
+  max-width: 260px;
+  color: var(--accent);
+  font-size: 12px;
+  font-family: "SF Mono", "Fira Code", monospace;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-decoration: none;
+}
+
+.settings-link:hover {
+  color: var(--accent-hover);
+  text-decoration: underline;
+}
+
 .update-status-message {
   max-width: 190px;
   font-size: 12px;
