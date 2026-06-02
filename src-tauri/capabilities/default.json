@@ -7,6 +7,7 @@
     "shell:allow-execute",
     "shell:allow-spawn",
     "shell:default",
-    "updater:default"
+    "updater:default",
+    "process:default"
   ]
 }

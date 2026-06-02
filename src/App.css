@@ -740,6 +740,29 @@ body {
   border: 1px solid rgba(79, 140, 255, 0.25);
 }
 
+/* Windows-style close button */
+.settings-close-btn {
+  margin-left: 12px;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 18px;
+  cursor: pointer;
+  border-radius: 4px;
+  -webkit-app-region: no-drag;
+  transition: background 0.15s, color 0.15s;
+}
+
+.settings-close-btn:hover {
+  background: #e81123;
+  color: #fff;
+}
+
 .settings-section {
   margin-bottom: 20px;
 }

@@ -9,6 +9,19 @@ interface Props {
   onCheckUpdate: () => Promise<boolean>;
 }
 
+function getPlatform(): string {
+  const p = navigator.platform || navigator.userAgent || "";
+  if (p.includes("Mac") || p.includes("mac")) return "macOS";
+  if (p.includes("Win") || p.includes("win")) return "Windows";
+  if (p.includes("Linux") || p.includes("linux")) return "Linux";
+  return p;
+}
+
+function isWindows(): boolean {
+  const p = navigator.platform || navigator.userAgent || "";
+  return p.includes("Win") || p.includes("win");
+}
+
 export default function Settings({ version, theme, onThemeChange, onClose, onCheckUpdate }: Props) {
   const [checking, setChecking] = useState(false);
   const [updateStatus, setUpdateStatus] = useState<"idle" | "latest" | "found" | "error">("idle");
@@ -29,11 +42,21 @@ export default function Settings({ version, theme, onThemeChange, onClose, onChe
     <div className="dialog-overlay" onClick={onClose}>
       <div className="dialog settings-dialog" onClick={(e) => e.stopPropagation()}>
         <div className="settings-titlebar">
-          <div className="traffic-lights">
-            <span className="traffic-light red" onClick={onClose} title="关闭">&times;</span>
-          </div>
-          <span className="settings-titlebar-text">设置</span>
-          <span className="version-tag">v{version}</span>
+          {!isWindows() ? (
+            <>
+              <div className="traffic-lights">
+                <span className="traffic-light red" onClick={onClose} title="关闭">&times;</span>
+              </div>
+              <span className="settings-titlebar-text">设置</span>
+              <span className="version-tag">v{version}</span>
+            </>
+          ) : (
+            <>
+              <span className="settings-titlebar-text" style={{ flex: 1 }}>设置</span>
+              <span className="version-tag">v{version}</span>
+              <button className="settings-close-btn" onClick={onClose} title="关闭">&times;</button>
+            </>
+          )}
         </div>
 
         <div className="settings-content">
@@ -71,7 +94,7 @@ export default function Settings({ version, theme, onThemeChange, onClose, onChe
           </div>
           <div className="settings-row">
             <span className="settings-label">平台</span>
-            <span className="settings-value">macOS</span>
+            <span className="settings-value">{getPlatform()}</span>
           </div>
           <div className="settings-row">
             <span className="settings-label">更新</span>

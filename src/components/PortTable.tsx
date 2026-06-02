@@ -24,7 +24,8 @@ export default function PortTable({ services, selected, loading, scanTotal, scan
     }
   };
 
-  const progress = scanTotal > 0 ? Math.round((scannedCount / scanTotal) * 100) : 0;
+  const displayedScannedCount = scanTotal > 0 ? Math.min(scannedCount, scanTotal) : scannedCount;
+  const progress = scanTotal > 0 ? Math.round((displayedScannedCount / scanTotal) * 100) : 0;
 
   if (services.length === 0 && !loading) {
     return (
@@ -46,7 +47,7 @@ export default function PortTable({ services, selected, loading, scanTotal, scan
         </div>
         <span className="scan-status">正在扫描端口...</span>
         {scanTotal > 0 && (
-          <span className="scan-progress">{scannedCount} / {scanTotal}</span>
+          <span className="scan-progress">{displayedScannedCount} / {scanTotal}</span>
         )}
       </div>
     );
@@ -63,7 +64,7 @@ export default function PortTable({ services, selected, loading, scanTotal, scan
             />
           </div>
           <span className="scanning-badge">
-            {scanTotal > 0 ? `${scannedCount}/${scanTotal}` : "扫描中..."}
+            {scanTotal > 0 ? `${displayedScannedCount}/${scanTotal}` : "扫描中..."}
           </span>
         </div>
       )}
@@ -96,7 +97,7 @@ export default function PortTable({ services, selected, loading, scanTotal, scan
               </td>
               <td>{s.process_name}</td>
               <td className="pid-num">{s.pid}</td>
-              <td><SourceIcon source={s.source} />{s.source}</td>
+              <td><SourceIcon source={s.source} executablePath={s.executable_path} />{s.source}</td>
               <td className="cmd-text" title={s.command_line}>
                 {s.command_line}
               </td>

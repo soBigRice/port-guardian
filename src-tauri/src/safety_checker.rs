@@ -29,9 +29,16 @@ pub fn judge(
 ) -> SafetyJudgment {
     let name_lower = process_name.to_lowercase();
     let cmd_lower = command_line.to_lowercase();
+    // Windows 进程名带 .exe 后缀，统一剥离
+    let name_stripped = name_lower.strip_suffix(".exe").unwrap_or(&name_lower);
 
     // 非当前用户进程 → caution
-    if !user.is_empty() && user != current_user && user != "root" {
+    // Unix: root 是超级用户; Windows: SYSTEM/NT AUTHORITY\SYSTEM 是超级用户
+    let is_super_user = user == "root"
+        || user == "SYSTEM"
+        || user == "NT AUTHORITY\\SYSTEM"
+        || user.ends_with("\\SYSTEM");
+    if !user.is_empty() && user != current_user && !is_super_user {
         return SafetyJudgment {
             level: SafetyLevel::Caution,
             reason: format!("该进程由用户 {} 启动，非当前用户", user),
@@ -86,7 +93,7 @@ pub fn judge(
         },
 
         ServiceType::WebServer => {
-            if is_user_web_server(&name_lower, &cmd_lower, user, current_user) {
+            if is_user_web_server(&name_stripped, &cmd_lower, user, current_user) {
                 SafetyJudgment {
                     level: SafetyLevel::Safe,
                     reason: "用户启动的 Web 开发服务".to_string(),
@@ -118,10 +125,10 @@ pub fn judge(
         },
 
         ServiceType::Unknown => {
-            if user == "root" {
+            if is_super_user {
                 SafetyJudgment {
                     level: SafetyLevel::Danger,
-                    reason: "root 进程，禁止终止".to_string(),
+                    reason: "系统级进程，禁止终止".to_string(),
                     can_terminate: false,
                     require_confirm: false,
                 }

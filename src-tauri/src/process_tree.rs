@@ -1,5 +1,4 @@
 use serde::Serialize;
-use std::process::Command;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct ProcessNode {
@@ -8,16 +7,28 @@ pub struct ProcessNode {
     pub command_line: String,
 }
 
-/// 构建父进程链（从当前进程向上追溯到 init/launchd）
+/// 构建父进程链（从当前进程向上追溯到 init/launchd/Windows System）
 pub fn build_parent_chain(pid: u32) -> Vec<ProcessNode> {
     let mut chain = Vec::new();
     let mut current_pid = pid;
     let mut seen = std::collections::HashSet::new();
 
     for _ in 0..20 {
-        if current_pid == 0 || current_pid == 1 {
-            break;
+        // Unix: PID 0 (kernel) 和 PID 1 (init/launchd) 是根进程
+        // Windows: PID 0 (System Idle) 和 PID 4 (System) 是根进程
+        #[cfg(unix)]
+        {
+            if current_pid == 0 || current_pid == 1 {
+                break;
+            }
         }
+        #[cfg(windows)]
+        {
+            if current_pid == 0 || current_pid == 4 {
+                break;
+            }
+        }
+
         if !seen.insert(current_pid) {
             break;
         }
@@ -46,7 +57,10 @@ pub fn identify_source(chain: &[ProcessNode]) -> String {
         let cmd_lower = cmd.to_lowercase();
 
         // ── AI / IDE 工具 ──────────────────────────────────
-        if name_lower.contains("cursor") || cmd_lower.contains("cursor.app") {
+        if name_lower.contains("cursor")
+            || cmd_lower.contains("cursor.app")
+            || cmd_lower.contains("cursor.exe")
+        {
             return "Cursor".into();
         }
         if name_lower == "codex" || cmd_lower.contains("codex") {
@@ -59,13 +73,20 @@ pub fn identify_source(chain: &[ProcessNode]) -> String {
         if (name_lower == "code" || name_lower == "code-insiders")
             || (name_lower == "electron" && cmd_lower.contains("visual studio code"))
             || cmd_lower.contains("/applications/visual studio code")
+            || cmd_lower.contains("microsoft vs code")
+            || cmd_lower.contains("\\microsoft vs code\\")
         {
             return "VSCode".into();
         }
         // JetBrains
-        if cmd_lower.contains("jetbrains") || cmd_lower.contains("/idea") || cmd_lower.contains("webstorm")
-            || cmd_lower.contains("pycharm") || cmd_lower.contains("goland") || cmd_lower.contains("clion")
-            || name_lower.contains("idea") || name_lower.contains("webstorm")
+        if cmd_lower.contains("jetbrains")
+            || cmd_lower.contains("/idea")
+            || cmd_lower.contains("webstorm")
+            || cmd_lower.contains("pycharm")
+            || cmd_lower.contains("goland")
+            || cmd_lower.contains("clion")
+            || name_lower.contains("idea")
+            || name_lower.contains("webstorm")
         {
             return "JetBrains".into();
         }
@@ -82,7 +103,7 @@ pub fn identify_source(chain: &[ProcessNode]) -> String {
             return "Sublime Text".into();
         }
         // Zed
-        if name_lower == "zed" || cmd_lower.contains("/zed.app") {
+        if name_lower == "zed" || cmd_lower.contains("/zed.app") || cmd_lower.contains("zed.exe") {
             return "Zed".into();
         }
         // Vim / Neovim
@@ -130,6 +151,19 @@ pub fn identify_source(chain: &[ProcessNode]) -> String {
         if name_lower == "ghostty" || cmd_lower.contains("ghostty") {
             return "Ghostty".into();
         }
+        // Windows Terminal
+        if name_lower == "windowsterminal" || cmd_lower.contains("windowsterminal") {
+            return "Windows Terminal".into();
+        }
+        // PowerShell
+        if name_lower == "powershell" || name_lower == "pwsh" {
+            // PowerShell 不是最终来源，继续向上找
+            continue;
+        }
+        // cmd.exe
+        if name_lower == "cmd" || name_lower == "cmd.exe" {
+            continue;
+        }
         // tmux
         if name_lower == "tmux" || name_lower == "tmux: server" {
             return "tmux".into();
@@ -140,7 +174,8 @@ pub fn identify_source(chain: &[ProcessNode]) -> String {
         }
 
         // ── Shell（zsh / bash / fish）─────────────────────
-        if name_lower == "zsh" || name_lower == "bash" || name_lower == "fish" || name_lower == "sh" {
+        if name_lower == "zsh" || name_lower == "bash" || name_lower == "fish" || name_lower == "sh"
+        {
             // Shell 不是最终来源，继续向上找
             continue;
         }
@@ -201,7 +236,10 @@ pub fn identify_source(chain: &[ProcessNode]) -> String {
         if name_lower.contains("obsidian") || cmd_lower.contains("obsidian") {
             return "Obsidian".into();
         }
-        if name_lower.contains("feishu") || name_lower.contains("lark") || cmd_lower.contains("feishu") {
+        if name_lower.contains("feishu")
+            || name_lower.contains("lark")
+            || cmd_lower.contains("feishu")
+        {
             return "飞书".into();
         }
         if name_lower.contains("dingtalk") || cmd_lower.contains("dingtalk") {
@@ -225,7 +263,7 @@ pub fn identify_source(chain: &[ProcessNode]) -> String {
             return "Docker".into();
         }
 
-        // ── 系统服务 ─────────────────────────────────────
+        // ── macOS 系统服务 ───────────────────────────────
         if name_lower == "launchd" || name_lower == "systemd" || name_lower == "init" {
             return "System".into();
         }
@@ -241,7 +279,7 @@ pub fn identify_source(chain: &[ProcessNode]) -> String {
         if name_lower == "coreaudiod" || name_lower == "coreaudiod" {
             return "System Audio".into();
         }
-        if name_lower == "bluetoothd" || name_lower == "WiFiAgent" {
+        if name_lower == "bluetoothd" || name_lower == "wifiagent" {
             return "System Network".into();
         }
         if name_lower == "mds" || name_lower == "mds_stores" || name_lower == "spotlight" {
@@ -257,11 +295,81 @@ pub fn identify_source(chain: &[ProcessNode]) -> String {
             return "Apple Service".into();
         }
 
+        // ── Windows 系统服务 ─────────────────────────────
+        if name_lower == "system" || name_lower == "registry" {
+            return "System".into();
+        }
+        if name_lower == "smss" || name_lower == "smss.exe" {
+            return "Session Manager".into();
+        }
+        if name_lower == "csrss" || name_lower == "csrss.exe" {
+            return "Client Server Runtime".into();
+        }
+        if name_lower == "wininit" || name_lower == "wininit.exe" {
+            return "Windows Init".into();
+        }
+        if name_lower == "lsass" || name_lower == "lsass.exe" {
+            return "Local Security Authority".into();
+        }
+        if name_lower == "services" || name_lower == "services.exe" {
+            return "Service Control Manager".into();
+        }
+        if name_lower == "svchost" || name_lower == "svchost.exe" {
+            return "Service Host".into();
+        }
+        if name_lower == "dwm" || name_lower == "dwm.exe" {
+            return "Desktop Window Manager".into();
+        }
+        if name_lower == "winlogon" || name_lower == "winlogon.exe" {
+            return "Windows Logon".into();
+        }
+        if name_lower == "searchhost" || name_lower == "searchapp" {
+            return "Windows Search".into();
+        }
+        if name_lower == "startmenuexperiencehost" {
+            return "Start Menu".into();
+        }
+        if name_lower == "textinputhost" {
+            return "Text Input".into();
+        }
+        if name_lower == "runtimebroker" || name_lower == "runtimebroker.exe" {
+            return "Runtime Broker".into();
+        }
+        if name_lower == "wmiprvse" || name_lower == "wmiprvse.exe" {
+            return "WMI Provider".into();
+        }
+        if name_lower == "dllhost" || name_lower == "dllhost.exe" {
+            return "DLL Host".into();
+        }
+        if name_lower == "conhost" || name_lower == "conhost.exe" {
+            return "Console Host".into();
+        }
+        if name_lower == "spoolsv" || name_lower == "spoolsv.exe" {
+            return "Print Spooler".into();
+        }
+        if name_lower == "msdtc" || name_lower == "msdtc.exe" {
+            return "Distributed Transaction Coordinator".into();
+        }
+        if name_lower == "securityhealthservice" {
+            return "Windows Security".into();
+        }
+        if name_lower == "sihost" || name_lower == "sihost.exe" {
+            return "Shell Infrastructure".into();
+        }
+
         // ── 开发工具 / 包管理器 ──────────────────────────
-        if name_lower == "homebrew" || cmd_lower.contains("homebrew") || cmd_lower.contains("/opt/homebrew") {
+        if name_lower == "homebrew"
+            || cmd_lower.contains("homebrew")
+            || cmd_lower.contains("/opt/homebrew")
+        {
             return "Homebrew".into();
         }
-        if name_lower == "node" || name_lower == "npm" || name_lower == "pnpm" || name_lower == "yarn" || name_lower == "bun" {
+        if name_lower == "node"
+            || name_lower == "npm"
+            || name_lower == "pnpm"
+            || name_lower == "yarn"
+            || name_lower == "bun"
+        {
             // 继续向上找来源（可能是从 IDE 或终端启动的）
             continue;
         }
@@ -291,8 +399,15 @@ pub fn identify_source(chain: &[ProcessNode]) -> String {
     "Unknown".into()
 }
 
+// ═══════════════════════════════════════════════════════════════
+// Unix (macOS / Linux) 实现 — 使用 ps
+// ═══════════════════════════════════════════════════════════════
+
 /// 获取进程简要信息 (ppid, user, name, command_line)
+#[cfg(unix)]
 fn get_process_brief(pid: u32) -> Result<(u32, String, String, String), String> {
+    use std::process::Command;
+
     let output = Command::new("ps")
         .args(["-p", &pid.to_string(), "-o", "pid=,ppid=,user=,comm=,args="])
         .output()
@@ -310,6 +425,7 @@ fn get_process_brief(pid: u32) -> Result<(u32, String, String, String), String> 
 /// 解析 ps 输出行
 /// 格式: PID PPID USER COMM ARGS
 /// PID/PPID 是数字，USER 是用户名，COMM 是进程名，ARGS 是完整命令行
+#[cfg(unix)]
 fn parse_ps_line(line: &str) -> Result<(u32, String, String, String), String> {
     let line = line.trim();
     if line.is_empty() {
@@ -344,10 +460,16 @@ fn parse_ps_line(line: &str) -> Result<(u32, String, String, String), String> {
         command_line
     };
 
-    Ok((ppid, user.trim().to_string(), name.trim().to_string(), command_line))
+    Ok((
+        ppid,
+        user.trim().to_string(),
+        name.trim().to_string(),
+        command_line,
+    ))
 }
 
 /// 从 ps 输出中提取一个字段（跳过前导空格，取到下一个空格）
+#[cfg(unix)]
 fn extract_field(s: &str) -> (&str, &str) {
     let s = s.trim_start();
     if s.is_empty() {
@@ -357,4 +479,64 @@ fn extract_field(s: &str) -> (&str, &str) {
         Some(pos) => (&s[..pos], &s[pos..]),
         None => (s, ""),
     }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Windows 实现 — 使用 PowerShell Get-CimInstance
+// ═══════════════════════════════════════════════════════════════
+
+/// 获取进程简要信息 (ppid, user, name, command_line) — Windows
+/// 优先使用 process_resolver 的缓存，缓存未命中时才调用 PowerShell
+#[cfg(windows)]
+fn get_process_brief(pid: u32) -> Result<(u32, String, String, String), String> {
+    use crate::process_resolver;
+
+    // 先通过缓存获取
+    if let Ok(info) = process_resolver::resolve_process(pid) {
+        return Ok((info.ppid, info.user, info.name, info.command_line));
+    }
+
+    // 缓存未命中，单独调用 PowerShell
+    let ps_script = format!(
+        "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; \
+         $p = Get-CimInstance -ClassName Win32_Process -Filter 'ProcessId={}' -ErrorAction SilentlyContinue; \
+         if ($p) {{ \
+           Write-Output ('PPID:' + $p.ParentProcessId); \
+           Write-Output ('NAME:' + $p.Name); \
+           Write-Output ('CMD:' + [string]$p.CommandLine); \
+         }}",
+        pid
+    );
+
+    let output = std::process::Command::new("powershell")
+        .args(["-NoProfile", "-NonInteractive", "-Command", &ps_script])
+        .output()
+        .map_err(|e| format!("PowerShell failed: {}", e))?;
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    let mut ppid: u32 = 0;
+    let mut name = String::new();
+    let mut command_line = String::new();
+
+    for line in stdout.lines() {
+        let line = line.trim();
+        if let Some(val) = line.strip_prefix("PPID:") {
+            ppid = val.trim().parse().unwrap_or(0);
+        } else if let Some(val) = line.strip_prefix("NAME:") {
+            name = val.trim().to_string();
+        } else if let Some(val) = line.strip_prefix("CMD:") {
+            command_line = val.trim().to_string();
+        }
+    }
+
+    if name.is_empty() {
+        return Err(format!("Process {} not found", pid));
+    }
+
+    if command_line.is_empty() {
+        command_line = name.clone();
+    }
+
+    Ok((ppid, String::new(), name, command_line))
 }

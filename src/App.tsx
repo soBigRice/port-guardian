@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getVersion } from "@tauri-apps/api/app";
@@ -12,6 +12,63 @@ import Settings from "./components/Settings";
 import UpdateChecker from "./components/UpdateChecker";
 
 const FALLBACK_VERSION = "0.1.0";
+
+type FilterKey =
+  | "all"
+  | "safe"
+  | "caution"
+  | "danger"
+  | "dev-service"
+  | "web-server"
+  | "database-service"
+  | "infra-service"
+  | "docker-service"
+  | "system-service"
+  | "app-service";
+
+const FILTER_OPTIONS: { key: FilterKey; label: string }[] = [
+  { key: "all", label: "全部" },
+  { key: "safe", label: "安全可杀" },
+  { key: "caution", label: "谨慎操作" },
+  { key: "danger", label: "危险服务" },
+  { key: "dev-service", label: "开发服务" },
+  { key: "web-server", label: "Web服务" },
+  { key: "database-service", label: "数据库" },
+  { key: "infra-service", label: "基础设施" },
+  { key: "docker-service", label: "Docker" },
+  { key: "system-service", label: "系统服务" },
+  { key: "app-service", label: "应用程序" },
+];
+
+function matchesFilter(service: PortService, filter: FilterKey) {
+  switch (filter) {
+    case "all":
+      return true;
+    case "safe":
+      return service.safety_level === "safe";
+    case "caution":
+      return service.safety_level === "caution" || service.safety_level === "unknown";
+    case "danger":
+      return service.safety_level === "danger";
+    case "dev-service":
+      return service.service_type === "dev-service" || service.service_type === "ai-dev-service";
+    default:
+      return service.service_type === filter;
+  }
+}
+
+function matchesSearch(service: PortService, query: string) {
+  if (!query) return true;
+  const q = query.toLowerCase();
+  return (
+    service.port.toString().includes(q) ||
+    service.process_name.toLowerCase().includes(q) ||
+    service.command_line.toLowerCase().includes(q) ||
+    service.cwd.toLowerCase().includes(q) ||
+    service.service_name.toLowerCase().includes(q) ||
+    service.source.toLowerCase().includes(q)
+  );
+}
 
 function getInitialTheme(): Theme {
   const saved = localStorage.getItem("pg-theme") as Theme;
@@ -31,11 +88,10 @@ function applyTheme(theme: Theme) {
 
 function App() {
   const [services, setServices] = useState<PortService[]>([]);
-  const [filtered, setFiltered] = useState<PortService[]>([]);
   const [selected, setSelected] = useState<PortService | null>(null);
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState("");
-  const [filter, setFilter] = useState<string>("all");
+  const [filter, setFilter] = useState<FilterKey>("all");
   const [killTarget, setKillTarget] = useState<PortService | null>(null);
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
   const [showSettings, setShowSettings] = useState(false);
@@ -46,6 +102,11 @@ function App() {
   const [scanTotal, setScanTotal] = useState(0);
   const [scannedCount, setScannedCount] = useState(0);
   const rowClickedRef = useRef(false);
+  const pendingServicesRef = useRef<PortService[]>([]);
+  const seenServiceIdsRef = useRef<Set<string>>(new Set());
+  const scanInFlightRef = useRef(false);
+  const scanTotalRef = useRef(0);
+  const flushTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // 应用主题
   useEffect(() => {
@@ -74,10 +135,55 @@ function App() {
     })();
   }, []);
 
+  // 将 pendingServices flush 到 state（扫描期间定时批量更新）
+  // 用 ref 包一层，避免 useCallback 依赖导致 useEffect 重新订阅
+  const flushPendingRef = useRef<() => void>(() => {});
+  flushPendingRef.current = () => {
+    const pending = pendingServicesRef.current;
+    if (pending.length > 0) {
+      pendingServicesRef.current = [];
+      setServices((prev) => [...prev, ...pending]);
+      setScannedCount((prev) => {
+        const next = prev + pending.length;
+        return scanTotalRef.current > 0 ? Math.min(next, scanTotalRef.current) : next;
+      });
+    }
+  };
+
+  const finishScanRef = useRef<(completed?: boolean) => void>(() => {});
+  finishScanRef.current = (completed = true) => {
+    if (flushTimerRef.current) {
+      clearInterval(flushTimerRef.current);
+      flushTimerRef.current = null;
+    }
+    flushPendingRef.current();
+    scanInFlightRef.current = false;
+    setLoading(false);
+    if (completed) {
+      setLastRefresh(new Date());
+    }
+  };
+
   // 流式扫描：逐个接收端口结果
   const refresh = useCallback(async () => {
     if (!(window as any).__TAURI_INTERNALS__) return;
+    if (scanInFlightRef.current) {
+      flushPendingRef.current();
+      return;
+    }
+
+    scanInFlightRef.current = true;
+    // 清理上一轮扫描的 flush 定时器
+    if (flushTimerRef.current) {
+      clearInterval(flushTimerRef.current);
+      flushTimerRef.current = null;
+    }
+    pendingServicesRef.current = [];
+    seenServiceIdsRef.current = new Set();
+    scanTotalRef.current = 0;
     setServices([]);
+    setSelected(null);
+    setKillTarget(null);
     setLoading(true);
     setScanTotal(0);
     setScannedCount(0);
@@ -85,7 +191,13 @@ function App() {
       await invoke("scan_ports_stream");
     } catch (err) {
       console.error("扫描启动失败:", err);
-      setLoading(false);
+      finishScanRef.current(false);
+      return;
+    }
+
+    // 如果 complete 事件丢失，也不要让界面停在扫描中。
+    if (scanInFlightRef.current) {
+      finishScanRef.current();
     }
   }, []);
 
@@ -95,27 +207,43 @@ function App() {
 
     const unlistenPromise = Promise.all([
       listen<number>("scan-start", (event) => {
+        if (!scanInFlightRef.current) return;
+        scanTotalRef.current = event.payload;
         setScanTotal(event.payload);
+        setScannedCount(0);
+        // 启动定时 flush（每 150ms 批量更新一次，避免逐条渲染卡顿）
+        if (flushTimerRef.current) clearInterval(flushTimerRef.current);
+        flushTimerRef.current = setInterval(() => flushPendingRef.current(), 150);
       }),
       listen<PortService>("port-found", (event) => {
-        setServices((prev) => [...prev, event.payload]);
-        setScannedCount((prev) => prev + 1);
+        if (!scanInFlightRef.current) return;
+        if (seenServiceIdsRef.current.has(event.payload.id)) return;
+        seenServiceIdsRef.current.add(event.payload.id);
+        // 先缓存到 ref，不直接触发 setState
+        pendingServicesRef.current.push(event.payload);
       }),
       listen("scan-complete", () => {
-        setLoading(false);
-        setLastRefresh(new Date());
+        if (!scanInFlightRef.current) return;
+        finishScanRef.current();
       }),
     ]);
 
     return () => {
       unlistenPromise.then(([u1, u2, u3]) => { u1(); u2(); u3(); });
+      if (flushTimerRef.current) {
+        clearInterval(flushTimerRef.current);
+        flushTimerRef.current = null;
+      }
     };
   }, []);
 
   // 启动时自动扫描
   useEffect(() => {
-    refresh();
-  }, []);
+    const timer = window.setTimeout(() => {
+      refresh();
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [refresh]);
 
   // Escape 关闭详情面板
   useEffect(() => {
@@ -130,33 +258,25 @@ function App() {
     return () => window.removeEventListener("keydown", handler);
   }, [selected, killTarget, showSettings]);
 
-  useEffect(() => {
-    let list = services;
-    if (search) {
-      const q = search.toLowerCase();
-      list = list.filter(
-        (s) =>
-          s.port.toString().includes(q) ||
-          s.process_name.toLowerCase().includes(q) ||
-          s.command_line.toLowerCase().includes(q) ||
-          s.cwd.toLowerCase().includes(q) ||
-          s.service_name.toLowerCase().includes(q) ||
-          s.source.toLowerCase().includes(q)
-      );
-    }
-    if (filter !== "all") {
-      if (filter === "safe") {
-        list = list.filter((s) => s.safety_level === "safe");
-      } else if (filter === "caution") {
-        list = list.filter((s) => s.safety_level === "caution" || s.safety_level === "unknown");
-      } else if (filter === "danger") {
-        list = list.filter((s) => s.safety_level === "danger");
-      } else {
-        list = list.filter((s) => s.service_type === filter);
-      }
-    }
-    setFiltered(list);
+  const filtered = useMemo(() => {
+    return services.filter((service) => matchesSearch(service, search) && matchesFilter(service, filter));
   }, [services, search, filter]);
+
+  useEffect(() => {
+    if (selected && !filtered.some((service) => service.id === selected.id)) {
+      setSelected(null);
+    }
+  }, [filtered, selected]);
+
+  const handleSearchChange = (value: string) => {
+    flushPendingRef.current();
+    setSearch(value);
+  };
+
+  const handleFilterChange = (nextFilter: FilterKey) => {
+    flushPendingRef.current();
+    setFilter(nextFilter);
+  };
 
   const handleKill = async (service: PortService, force: boolean) => {
     try {
@@ -253,23 +373,13 @@ function App() {
       </header>
 
       <div className="toolbar">
-        <SearchBar value={search} onChange={setSearch} />
+        <SearchBar value={search} onChange={handleSearchChange} />
         <div className="filters">
-          {[
-            { key: "all", label: "全部" },
-            { key: "safe", label: "安全可杀" },
-            { key: "caution", label: "谨慎操作" },
-            { key: "danger", label: "危险服务" },
-            { key: "dev-service", label: "开发服务" },
-            { key: "database-service", label: "数据库" },
-            { key: "docker-service", label: "Docker" },
-            { key: "system-service", label: "系统服务" },
-            { key: "app-service", label: "应用程序" },
-          ].map((f) => (
+          {FILTER_OPTIONS.map((f) => (
             <button
               key={f.key}
               className={`filter-btn ${filter === f.key ? "active" : ""}`}
-              onClick={() => setFilter(f.key)}
+              onClick={() => handleFilterChange(f.key)}
             >
               {f.label}
             </button>
