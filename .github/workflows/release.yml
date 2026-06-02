@@ -40,6 +40,18 @@ jobs:
         with:
           targets: ${{ matrix.rust_targets }}
 
+      - name: Use official crates.io registry in CI
+        shell: bash
+        run: |
+          if [ -f src-tauri/.cargo/config.toml ]; then
+            mv src-tauri/.cargo/config.toml src-tauri/.cargo/config.local.toml
+          fi
+          mkdir -p src-tauri/.cargo
+          cat > src-tauri/.cargo/config.toml <<'EOF'
+          [net]
+          git-fetch-with-cli = true
+          EOF
+
       - name: Install dependencies (ubuntu only)
         if: matrix.platform == 'ubuntu-22.04'
         run: |

@@ -293,6 +293,14 @@ npm run tauri build
 - 解决方案：重新生成 Tauri updater 签名 key，将公钥写入 `src-tauri/tauri.conf.json`，将私钥写入 GitHub Actions Secret `TAURI_SIGNING_PRIVATE_KEY`，并在 workflow 中增加私钥缺失的前置校验。
 - 后续注意点：私钥不能提交到仓库；如果未来已经对外发布过旧公钥版本，替换 updater 公钥会让旧版本无法自动更新到新版本，需保留旧私钥或设计过渡版本。
 
+#### 2026-06-02：GitHub Actions 构建时访问 USTC crates 镜像超时
+
+- 问题描述：macOS 发布任务在 `Build with Tauri` 阶段下载 `tauri-build` 失败，日志显示 `Updating ustc index` 后 curl 超时。
+- 出现原因：仓库内 `src-tauri/.cargo/config.toml` 将 crates.io 替换为 USTC 镜像；该配置适合本地国内网络，但 GitHub 海外 runner 访问该镜像不稳定。
+- 影响范围：GitHub Actions 上的 Rust 依赖解析可能随机失败，macOS/Windows 都可能受影响；本地构建不一定复现。
+- 解决方案：保留仓库中的本地镜像配置，在 Release workflow 中仅对 CI runner 临时改写 Cargo 配置，恢复使用官方 crates.io。
+- 后续注意点：网络镜像配置要区分本地开发与 CI 环境；CI 优先使用 runner 所在网络更稳定的源。
+
 ---
 
 ## 📦 依赖说明
