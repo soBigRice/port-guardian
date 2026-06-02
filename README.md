@@ -11,10 +11,10 @@
 ![React](https://img.shields.io/badge/React-19-61DAFB)
 ![Rust](https://img.shields.io/badge/Rust-2024-orange)
 ![License](https://img.shields.io/badge/license-MIT-green)
-![Version](https://img.shields.io/badge/version-0.1.10-brightgreen)
+![Version](https://img.shields.io/badge/version-0.1.11-brightgreen)
 
-[![下载 macOS DMG](https://img.shields.io/badge/下载-macOS%20DMG-111111?logo=apple&logoColor=white)](https://github.com/soBigRice/port-guardian/releases/download/v0.1.10/Port.Guardian_0.1.10_universal.dmg)
-[![下载 Windows EXE](https://img.shields.io/badge/下载-Windows%20EXE-0078D4?logo=windows&logoColor=white)](https://github.com/soBigRice/port-guardian/releases/download/v0.1.10/Port.Guardian_0.1.10_x64-setup.exe)
+[![下载 macOS DMG](https://img.shields.io/badge/下载-macOS%20DMG-111111?logo=apple&logoColor=white)](https://github.com/soBigRice/port-guardian/releases/download/v0.1.11/Port.Guardian_0.1.11_universal.dmg)
+[![下载 Windows EXE](https://img.shields.io/badge/下载-Windows%20EXE-0078D4?logo=windows&logoColor=white)](https://github.com/soBigRice/port-guardian/releases/download/v0.1.11/Port.Guardian_0.1.11_x64-setup.exe)
 
 </div>
 
@@ -153,12 +153,12 @@ port-guardian/
 
 ### 下载安装
 
-当前版本：`v0.1.10`
+当前版本：`v0.1.11`
 
 | 系统 | 一键下载 |
 |------|----------|
-| macOS | [下载 `Port.Guardian_0.1.10_universal.dmg`](https://github.com/soBigRice/port-guardian/releases/download/v0.1.10/Port.Guardian_0.1.10_universal.dmg) |
-| Windows | [下载 `Port.Guardian_0.1.10_x64-setup.exe`](https://github.com/soBigRice/port-guardian/releases/download/v0.1.10/Port.Guardian_0.1.10_x64-setup.exe) |
+| macOS | [下载 `Port.Guardian_0.1.11_universal.dmg`](https://github.com/soBigRice/port-guardian/releases/download/v0.1.11/Port.Guardian_0.1.11_universal.dmg) |
+| Windows | [下载 `Port.Guardian_0.1.11_x64-setup.exe`](https://github.com/soBigRice/port-guardian/releases/download/v0.1.11/Port.Guardian_0.1.11_x64-setup.exe) |
 
 如需查看历史版本或校验签名文件，可打开 [GitHub Releases](https://github.com/soBigRice/port-guardian/releases/latest) 页面。
 
