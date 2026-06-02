@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { PortService } from "../types";
 import RiskBadge from "./RiskBadge";
 import SourceIcon from "./SourceIcon";
+import { useTranslation } from "../i18n";
 
 interface Props {
   services: PortService[];
@@ -15,6 +16,8 @@ interface Props {
 }
 
 export default function PortTable({ services, selected, loading, scanTotal, scannedCount, hasFilter, onSelect, onKill }: Props) {
+  const { t } = useTranslation();
+
   const handleOpenCwd = async (e: React.MouseEvent, cwd: string) => {
     e.stopPropagation();
     try {
@@ -31,7 +34,7 @@ export default function PortTable({ services, selected, loading, scanTotal, scan
     return (
       <div className="empty-state">
         <span className="icon">&#128269;</span>
-        <span>{hasFilter ? "没有匹配的服务" : "未发现监听端口"}</span>
+        <span>{hasFilter ? t("portTable.empty.noMatch") : t("portTable.empty.noPorts")}</span>
       </div>
     );
   }
@@ -45,7 +48,7 @@ export default function PortTable({ services, selected, loading, scanTotal, scan
           <div className="scan-radar-ring" />
           <div className="scan-radar-dot" />
         </div>
-        <span className="scan-status">正在扫描端口...</span>
+        <span className="scan-status">{t("portTable.scanningPorts")}</span>
         {scanTotal > 0 && (
           <span className="scan-progress">{displayedScannedCount} / {scanTotal}</span>
         )}
@@ -64,22 +67,22 @@ export default function PortTable({ services, selected, loading, scanTotal, scan
             />
           </div>
           <span className="scanning-badge">
-            {scanTotal > 0 ? `${displayedScannedCount}/${scanTotal}` : "扫描中..."}
+            {scanTotal > 0 ? `${displayedScannedCount}/${scanTotal}` : t("common.scanning")}
           </span>
         </div>
       )}
       <table className="port-table">
         <thead>
           <tr>
-            <th>端口</th>
-            <th>服务类型</th>
-            <th>进程</th>
-            <th>PID</th>
-            <th>来源</th>
-            <th>命令</th>
-            <th>目录</th>
-            <th>风险</th>
-            <th>操作</th>
+            <th>{t("portTable.header.port")}</th>
+            <th>{t("portTable.header.serviceType")}</th>
+            <th>{t("portTable.header.process")}</th>
+            <th>{t("portTable.header.pid")}</th>
+            <th>{t("portTable.header.source")}</th>
+            <th>{t("portTable.header.command")}</th>
+            <th>{t("portTable.header.directory")}</th>
+            <th>{t("portTable.header.risk")}</th>
+            <th>{t("portTable.header.actions")}</th>
           </tr>
         </thead>
         <tbody>
@@ -103,7 +106,7 @@ export default function PortTable({ services, selected, loading, scanTotal, scan
               </td>
               <td
                 className="cwd-text clickable-path"
-                title={s.cwd ? `点击打开: ${s.cwd}` : ""}
+                title={s.cwd ? `${t("portTable.cwdTooltip")} ${s.cwd}` : ""}
                 onClick={s.cwd ? (e) => handleOpenCwd(e, s.cwd) : undefined}
               >
                 {s.cwd ? s.cwd.replace(/^\/Users\/[^/]+/, "~") : ""}
@@ -120,11 +123,11 @@ export default function PortTable({ services, selected, loading, scanTotal, scan
                       onKill(s);
                     }}
                   >
-                    终止
+                    {t("common.terminate")}
                   </button>
                 ) : s.safety_level === "danger" ? (
                   <span style={{ color: "var(--text-muted)", fontSize: 11 }}>
-                    禁止
+                    {t("common.forbidden")}
                   </span>
                 ) : (
                   <button
@@ -134,7 +137,7 @@ export default function PortTable({ services, selected, loading, scanTotal, scan
                       onKill(s);
                     }}
                   >
-                    查看
+                    {t("common.view")}
                   </button>
                 )}
               </td>

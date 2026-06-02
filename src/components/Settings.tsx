@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Theme } from "../types";
+import { useTranslation, type Language } from "../i18n";
 
 const PROJECT_URL = "https://github.com/soBigRice/port-guardian";
 
@@ -26,6 +27,7 @@ function isWindows(): boolean {
 }
 
 export default function Settings({ version, theme, updateError, onThemeChange, onClose, onCheckUpdate }: Props) {
+  const { t, language, setLanguage } = useTranslation();
   const [checking, setChecking] = useState(false);
   const [updateStatus, setUpdateStatus] = useState<"idle" | "latest" | "found" | "error">("idle");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -51,33 +53,47 @@ export default function Settings({ version, theme, updateError, onThemeChange, o
           {!isWindows() ? (
             <>
               <div className="traffic-lights">
-                <span className="traffic-light red" onClick={onClose} title="关闭">&times;</span>
+                <span className="traffic-light red" onClick={onClose} title={t("common.close")}>&times;</span>
               </div>
-              <span className="settings-titlebar-text">设置</span>
+              <span className="settings-titlebar-text">{t("settings.title")}</span>
               <span className="version-tag">v{version}</span>
             </>
           ) : (
             <>
-              <span className="settings-titlebar-text" style={{ flex: 1 }}>设置</span>
+              <span className="settings-titlebar-text" style={{ flex: 1 }}>{t("settings.title")}</span>
               <span className="version-tag">v{version}</span>
-              <button className="settings-close-btn" onClick={onClose} title="关闭">&times;</button>
+              <button className="settings-close-btn" onClick={onClose} title={t("common.close")}>&times;</button>
             </>
           )}
         </div>
 
         <div className="settings-content">
         <div className="settings-section">
-          <h4>外观</h4>
+          <h4>{t("settings.appearance")}</h4>
           <div className="settings-row">
-            <span className="settings-label">颜色主题</span>
+            <span className="settings-label">{t("settings.colorTheme")}</span>
             <div className="theme-options">
-              {(["dark", "light", "auto"] as Theme[]).map((t) => (
+              {(["dark", "light", "auto"] as Theme[]).map((th) => (
                 <button
-                  key={t}
-                  className={`theme-btn ${theme === t ? "active" : ""}`}
-                  onClick={() => onThemeChange(t)}
+                  key={th}
+                  className={`theme-btn ${theme === th ? "active" : ""}`}
+                  onClick={() => onThemeChange(th)}
                 >
-                  {t === "dark" ? "深色" : t === "light" ? "浅色" : "跟随系统"}
+                  {th === "dark" ? t("settings.theme.dark") : th === "light" ? t("settings.theme.light") : t("settings.theme.auto")}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="settings-row">
+            <span className="settings-label">{t("settings.language")}</span>
+            <div className="theme-options">
+              {(["zh", "en"] as Language[]).map((lang) => (
+                <button
+                  key={lang}
+                  className={`theme-btn ${language === lang ? "active" : ""}`}
+                  onClick={() => setLanguage(lang)}
+                >
+                  {lang === "zh" ? t("settings.languageZh") : t("settings.languageEn")}
                 </button>
               ))}
             </div>
@@ -85,25 +101,25 @@ export default function Settings({ version, theme, updateError, onThemeChange, o
         </div>
 
         <div className="settings-section">
-          <h4>关于</h4>
+          <h4>{t("settings.about")}</h4>
           <div className="settings-row">
-            <span className="settings-label">应用名称</span>
+            <span className="settings-label">{t("settings.appName")}</span>
             <span className="settings-value">Port Guardian</span>
           </div>
           <div className="settings-row">
-            <span className="settings-label">版本</span>
+            <span className="settings-label">{t("settings.version")}</span>
             <span className="settings-value">{version}</span>
           </div>
           <div className="settings-row">
-            <span className="settings-label">技术栈</span>
+            <span className="settings-label">{t("settings.techStack")}</span>
             <span className="settings-value">Tauri 2 + Rust + React</span>
           </div>
           <div className="settings-row">
-            <span className="settings-label">平台</span>
+            <span className="settings-label">{t("settings.platform")}</span>
             <span className="settings-value">{getPlatform()}</span>
           </div>
           <div className="settings-row">
-            <span className="settings-label">项目地址</span>
+            <span className="settings-label">{t("settings.projectUrl")}</span>
             <a
               className="settings-link"
               href={PROJECT_URL}
@@ -115,21 +131,21 @@ export default function Settings({ version, theme, updateError, onThemeChange, o
             </a>
           </div>
           <div className="settings-row">
-            <span className="settings-label">更新</span>
+            <span className="settings-label">{t("settings.update")}</span>
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
               {updateStatus === "latest" && (
                 <span className="settings-value update-status-message success">
-                  已是最新版本
+                  {t("settings.updateStatus.latest")}
                 </span>
               )}
               {updateStatus === "found" && (
                 <span className="settings-value update-status-message success">
-                  发现新版本
+                  {t("settings.updateStatus.found")}
                 </span>
               )}
               {updateStatus === "error" && (
                 <span className="settings-value update-status-message error" title={errorMessage || updateError || undefined}>
-                  {errorMessage || updateError || "更新检查失败"}
+                  {errorMessage || updateError || t("settings.updateStatus.checkFailed")}
                 </span>
               )}
               <button
@@ -138,21 +154,21 @@ export default function Settings({ version, theme, updateError, onThemeChange, o
                 disabled={checking}
                 style={{ padding: "4px 12px", fontSize: 12 }}
               >
-                {checking ? "检查中..." : "检查更新"}
+                {checking ? t("settings.updateChecking") : t("settings.updateCheckButton")}
               </button>
             </div>
           </div>
         </div>
 
         <div className="settings-section">
-          <h4>功能说明</h4>
+          <h4>{t("settings.features")}</h4>
           <div className="settings-note">
-            <p>Port Guardian 帮助你发现、识别和安全清理本机端口服务。</p>
+            <p>{t("settings.featureDesc")}</p>
             <ul>
-              <li><strong>安全</strong>：开发服务，可直接终止</li>
-              <li><strong>谨慎</strong>：数据库/Docker/应用，需二次确认</li>
-              <li><strong>危险</strong>：系统服务，禁止终止</li>
-              <li><strong>未知</strong>：无法识别，需手动判断</li>
+              <li><strong>{t("settings.feature.safe")}</strong>{t("settings.feature.safeDesc")}</li>
+              <li><strong>{t("settings.feature.caution")}</strong>{t("settings.feature.cautionDesc")}</li>
+              <li><strong>{t("settings.feature.danger")}</strong>{t("settings.feature.dangerDesc")}</li>
+              <li><strong>{t("settings.feature.unknown")}</strong>{t("settings.feature.unknownDesc")}</li>
             </ul>
           </div>
         </div>

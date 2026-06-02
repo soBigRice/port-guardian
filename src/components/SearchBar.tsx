@@ -1,14 +1,17 @@
+import { useTranslation } from "../i18n";
+
 interface Props {
   value: string;
   onChange: (v: string) => void;
 }
 
 export default function SearchBar({ value, onChange }: Props) {
+  const { t } = useTranslation();
   return (
     <input
       className="search-input"
       type="text"
-      placeholder="搜索端口、进程名、命令、目录..."
+      placeholder={t("searchBar.placeholder")}
       value={value}
       onChange={(e) => onChange(e.target.value)}
     />

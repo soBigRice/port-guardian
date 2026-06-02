@@ -11,6 +11,7 @@ import SearchBar from "./components/SearchBar";
 import Settings from "./components/Settings";
 import UpdateChecker from "./components/UpdateChecker";
 import { formatUpdateError } from "./utils/updateErrors";
+import { useTranslation } from "./i18n";
 
 const FALLBACK_VERSION = "0.1.0";
 
@@ -27,19 +28,6 @@ type FilterKey =
   | "system-service"
   | "app-service";
 
-const FILTER_OPTIONS: { key: FilterKey; label: string }[] = [
-  { key: "all", label: "全部" },
-  { key: "safe", label: "安全可杀" },
-  { key: "caution", label: "谨慎操作" },
-  { key: "danger", label: "危险服务" },
-  { key: "dev-service", label: "开发服务" },
-  { key: "web-server", label: "Web服务" },
-  { key: "database-service", label: "数据库" },
-  { key: "infra-service", label: "基础设施" },
-  { key: "docker-service", label: "Docker" },
-  { key: "system-service", label: "系统服务" },
-  { key: "app-service", label: "应用程序" },
-];
 
 function matchesFilter(service: PortService, filter: FilterKey) {
   switch (filter) {
@@ -88,6 +76,21 @@ function applyTheme(theme: Theme) {
 }
 
 function App() {
+  const { t } = useTranslation();
+
+  const FILTER_OPTIONS: { key: FilterKey; label: string }[] = useMemo(() => [
+    { key: "all", label: t("app.filter.all") },
+    { key: "safe", label: t("app.filter.safe") },
+    { key: "caution", label: t("app.filter.caution") },
+    { key: "danger", label: t("app.filter.danger") },
+    { key: "dev-service", label: t("app.filter.devService") },
+    { key: "web-server", label: t("app.filter.webServer") },
+    { key: "database-service", label: t("app.filter.database") },
+    { key: "infra-service", label: t("app.filter.infra") },
+    { key: "docker-service", label: t("app.filter.docker") },
+    { key: "system-service", label: t("app.filter.system") },
+    { key: "app-service", label: t("app.filter.app") },
+  ], [t]);
   const [services, setServices] = useState<PortService[]>([]);
   const [selected, setSelected] = useState<PortService | null>(null);
   const [loading, setLoading] = useState(false);
@@ -320,7 +323,7 @@ function App() {
       // 超时仍未释放，刷新列表获取最新状态
       refresh();
     } catch (err) {
-      alert(`终止失败: ${err}`);
+      alert(`${t("app.terminateFailed")} ${err}`);
     }
   };
 
@@ -334,7 +337,7 @@ function App() {
 
   const handleCheckUpdate = useCallback(async () => {
     if (!isTauri) {
-      const message = "当前浏览器预览环境不能检查更新，请在 Tauri 应用内重试。";
+      const message = t("app.browserUpdateError");
       setUpdateError(message);
       throw new Error(message);
     }
@@ -350,7 +353,7 @@ function App() {
       }
       return !!update;
     } catch (err) {
-      const message = formatUpdateError(err);
+      const message = formatUpdateError(err, t);
       setUpdateError(message);
       console.error("检查更新失败:", err);
       throw new Error(message);
@@ -368,7 +371,7 @@ function App() {
           fontSize: 13,
           textAlign: "center"
         }}>
-          当前在浏览器中运行，请使用 <code>npm run tauri dev</code> 启动以获得完整功能
+          {t("app.browserWarningBefore")} <code>npm run tauri dev</code> {t("app.browserWarningAfter")}
         </div>
       )}
       <header className="header">
@@ -378,17 +381,17 @@ function App() {
         </div>
         <div className="header-stats">
           <span className="stat">
-            监听端口: <strong>{services.length}</strong>
+            {t("app.stats.listeningPorts")} <strong>{services.length}</strong>
           </span>
           <span className="stat stat-safe">
-            安全: <strong>{safeCount}</strong>
+            {t("app.stats.safe")} <strong>{safeCount}</strong>
           </span>
           <span className="stat stat-caution">
-            谨慎: <strong>{cautionCount}</strong>
+            {t("app.stats.caution")} <strong>{cautionCount}</strong>
           </span>
           {dangerCount > 0 && (
             <span className="stat stat-danger">
-              危险: <strong>{dangerCount}</strong>
+              {t("app.stats.danger")} <strong>{dangerCount}</strong>
             </span>
           )}
         </div>
@@ -399,12 +402,12 @@ function App() {
             </span>
           )}
           <button className="btn btn-refresh" onClick={refresh} disabled={loading}>
-            {loading ? "扫描中..." : "刷新"}
+            {loading ? t("common.scanning") : t("app.refresh")}
           </button>
           <button
             className="btn btn-icon"
             onClick={() => setShowSettings(true)}
-            title="设置"
+            title={t("common.settings")}
           >
             &#9881;
           </button>
