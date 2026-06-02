@@ -152,14 +152,29 @@ function App() {
     }
   };
 
+  // 是否为静默模式（由 refresh(silent) 控制）
+  const silentScanRef = useRef(false);
+
   const finishScanRef = useRef<(completed?: boolean) => void>(() => {});
   finishScanRef.current = (completed = true) => {
     if (flushTimerRef.current) {
       clearInterval(flushTimerRef.current);
       flushTimerRef.current = null;
     }
-    flushPendingRef.current();
+
+    if (silentScanRef.current) {
+      // 静默模式：用新扫描结果替换旧列表，不闪屏
+      const pending = pendingServicesRef.current;
+      if (pending.length > 0) {
+        setServices(pending);
+      }
+      pendingServicesRef.current = [];
+    } else {
+      flushPendingRef.current();
+    }
+
     scanInFlightRef.current = false;
+    silentScanRef.current = false;
     setLoading(false);
     if (completed) {
       setLastRefresh(new Date());
@@ -167,14 +182,16 @@ function App() {
   };
 
   // 流式扫描：逐个接收端口结果
-  const refresh = useCallback(async () => {
+  // silent=true 时静默刷新：不闪屏、不显示 loading，扫描完成后替换列表
+  const refresh = useCallback(async (silent = false) => {
     if (!(window as any).__TAURI_INTERNALS__) return;
     if (scanInFlightRef.current) {
-      flushPendingRef.current();
+      if (!silent) flushPendingRef.current();
       return;
     }
 
     scanInFlightRef.current = true;
+    silentScanRef.current = silent;
     // 清理上一轮扫描的 flush 定时器
     if (flushTimerRef.current) {
       clearInterval(flushTimerRef.current);
@@ -183,12 +200,14 @@ function App() {
     pendingServicesRef.current = [];
     seenServiceIdsRef.current = new Set();
     scanTotalRef.current = 0;
-    setServices([]);
-    setSelected(null);
-    setKillTarget(null);
-    setLoading(true);
-    setScanTotal(0);
-    setScannedCount(0);
+    if (!silent) {
+      setServices([]);
+      setSelected(null);
+      setKillTarget(null);
+      setLoading(true);
+      setScanTotal(0);
+      setScannedCount(0);
+    }
     try {
       await invoke("scan_ports_stream");
     } catch (err) {
@@ -245,6 +264,51 @@ function App() {
       refresh();
     }, 0);
     return () => window.clearTimeout(timer);
+  }, [refresh]);
+
+  // 智能轮询：窗口可见时每 3 秒静默刷新，隐藏时暂停
+  useEffect(() => {
+    let pollTimer: ReturnType<typeof setInterval> | null = null;
+
+    const startPolling = () => {
+      if (pollTimer) return;
+      // 获得焦点时立即静默刷新一次
+      refresh(true);
+      pollTimer = setInterval(() => refresh(true), 3000);
+    };
+
+    const stopPolling = () => {
+      if (pollTimer) {
+        clearInterval(pollTimer);
+        pollTimer = null;
+      }
+    };
+
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible") {
+        startPolling();
+      } else {
+        stopPolling();
+      }
+    };
+
+    // 页面可见性变化
+    document.addEventListener("visibilitychange", handleVisibility);
+    // 窗口焦点变化（兼容）
+    window.addEventListener("focus", startPolling);
+    window.addEventListener("blur", stopPolling);
+
+    // 初始状态：如果可见就开始轮询
+    if (document.visibilityState === "visible") {
+      startPolling();
+    }
+
+    return () => {
+      stopPolling();
+      document.removeEventListener("visibilitychange", handleVisibility);
+      window.removeEventListener("focus", startPolling);
+      window.removeEventListener("blur", stopPolling);
+    };
   }, [refresh]);
 
   // Escape 关闭详情面板
@@ -398,7 +462,7 @@ function App() {
               {lastRefresh.toLocaleTimeString()}
             </span>
           )}
-          <button className="btn btn-refresh" onClick={refresh} disabled={loading}>
+          <button className="btn btn-refresh" onClick={() => refresh()} disabled={loading}>
             {loading ? "扫描中..." : "刷新"}
           </button>
           <button
