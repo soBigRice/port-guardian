@@ -2,6 +2,8 @@
 
 <div align="center">
 
+<img src="src-tauri/icons/icon.png" alt="Port Guardian 图标" width="96" height="96" />
+
 **开发端口服务识别与安全清理工具**
 
 ![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Windows-lightgrey)
@@ -9,7 +11,10 @@
 ![React](https://img.shields.io/badge/React-19-61DAFB)
 ![Rust](https://img.shields.io/badge/Rust-2024-orange)
 ![License](https://img.shields.io/badge/license-MIT-green)
-![Version](https://img.shields.io/badge/version-0.1.0-brightgreen)
+![Version](https://img.shields.io/badge/version-0.1.10-brightgreen)
+
+[![下载 macOS DMG](https://img.shields.io/badge/下载-macOS%20DMG-111111?logo=apple&logoColor=white)](https://github.com/soBigRice/port-guardian/releases/download/v0.1.10/Port.Guardian_0.1.10_universal.dmg)
+[![下载 Windows EXE](https://img.shields.io/badge/下载-Windows%20EXE-0078D4?logo=windows&logoColor=white)](https://github.com/soBigRice/port-guardian/releases/download/v0.1.10/Port.Guardian_0.1.10_x64-setup.exe)
 
 </div>
 
@@ -148,11 +153,16 @@ port-guardian/
 
 ### 下载安装
 
-1. 打开 [GitHub Releases](https://github.com/soBigRice/port-guardian/releases/latest) 页面。
-2. 根据系统下载对应安装包：
-   - macOS：下载 `Port.Guardian_<版本号>_universal.dmg`
-   - Windows：下载 `Port.Guardian_<版本号>_x64-setup.exe`
-3. 安装后启动应用，后续可在应用设置页点击“检查更新”获取新版本。
+当前版本：`v0.1.10`
+
+| 系统 | 一键下载 |
+|------|----------|
+| macOS | [下载 `Port.Guardian_0.1.10_universal.dmg`](https://github.com/soBigRice/port-guardian/releases/download/v0.1.10/Port.Guardian_0.1.10_universal.dmg) |
+| Windows | [下载 `Port.Guardian_0.1.10_x64-setup.exe`](https://github.com/soBigRice/port-guardian/releases/download/v0.1.10/Port.Guardian_0.1.10_x64-setup.exe) |
+
+如需查看历史版本或校验签名文件，可打开 [GitHub Releases](https://github.com/soBigRice/port-guardian/releases/latest) 页面。
+
+安装后启动应用，后续可在应用设置页点击“检查更新”获取新版本。
 
 #### macOS 首次安装打不开的处理
 
