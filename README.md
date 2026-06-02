@@ -301,6 +301,14 @@ npm run tauri build
 - 解决方案：保留仓库中的本地镜像配置，在 Release workflow 中仅对 CI runner 临时改写 Cargo 配置，恢复使用官方 crates.io。
 - 后续注意点：网络镜像配置要区分本地开发与 CI 环境；CI 优先使用 runner 所在网络更稳定的源。
 
+#### 2026-06-02：公开 Release 创建后无法继续上传资产
+
+- 问题描述：`tauri-action` 创建 `v0.1.6` Release 后上传 `.dmg` 失败，日志显示 `Cannot upload assets to an immutable release`。
+- 出现原因：发布流程直接创建公开 Release，GitHub 将该 Release 标记为 immutable，后续资产上传被拒绝；矩阵任务同时处理同一个 tag 也会放大竞态风险。
+- 影响范围：Release 会变成空资产公开版本，`latest.json` 不会生成，应用更新检查继续失败。
+- 解决方案：构建任务先上传到 Draft Release，并限制矩阵发布串行；所有平台资产上传完成后，再由独立 `publish-release` job 校验关键资产并公开发布。
+- 后续注意点：需要向同一个 Release 追加多平台资产时，优先使用 Draft 聚合产物，最后统一发布；不要先公开再上传。
+
 ---
 
 ## 📦 依赖说明
