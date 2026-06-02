@@ -112,7 +112,7 @@ pub fn is_port_listening(port: u16) -> bool {
 /// 普通终止进程（Windows：taskkill）
 #[cfg(windows)]
 pub fn terminate(pid: u32) -> TerminateResult {
-    let output = std::process::Command::new("taskkill")
+    let output = crate::windows_command::hidden_command("taskkill")
         .args(["/PID", &pid.to_string()])
         .output();
 
@@ -150,7 +150,7 @@ pub fn terminate(pid: u32) -> TerminateResult {
 /// 强制终止进程（Windows：taskkill /F）
 #[cfg(windows)]
 pub fn force_terminate(pid: u32) -> TerminateResult {
-    let output = std::process::Command::new("taskkill")
+    let output = crate::windows_command::hidden_command("taskkill")
         .args(["/F", "/PID", &pid.to_string()])
         .output();
 
@@ -188,7 +188,7 @@ pub fn force_terminate(pid: u32) -> TerminateResult {
 /// 检查进程是否仍然存在（Windows：tasklist）
 #[cfg(windows)]
 pub fn is_process_alive(pid: u32) -> bool {
-    let output = std::process::Command::new("tasklist")
+    let output = crate::windows_command::hidden_command("tasklist")
         .args(["/FI", &format!("PID eq {}", pid), "/NH"])
         .output();
 
@@ -209,7 +209,7 @@ pub fn is_process_alive(pid: u32) -> bool {
 #[allow(dead_code)]
 #[cfg(windows)]
 pub fn is_port_listening(port: u16) -> bool {
-    let output = std::process::Command::new("netstat")
+    let output = crate::windows_command::hidden_command("netstat")
         .args(["-ano", "-p", "tcp"])
         .output();
 

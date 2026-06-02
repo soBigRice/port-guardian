@@ -455,6 +455,8 @@ fn normalize_windows_exe_path(path: &str) -> Option<String> {
 
 #[cfg(windows)]
 fn extract_windows_icon_data_url(exe_path: &str, cache_key: &str) -> Option<String> {
+    use crate::windows_command::hidden_command;
+
     // 用 PowerShell 从 .exe 提取图标，通过临时文件中转（避免管道编码问题）
     let tmp_dir = std::env::temp_dir();
     let safe_name: String = cache_key
@@ -481,7 +483,7 @@ fn extract_windows_icon_data_url(exe_path: &str, cache_key: &str) -> Option<Stri
     );
     let _ = std::fs::write(&tmp_ps1, &ps_content);
 
-    let output = std::process::Command::new("powershell")
+    let output = hidden_command("powershell")
         .args([
             "-NoProfile",
             "-NonInteractive",

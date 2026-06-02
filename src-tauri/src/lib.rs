@@ -5,6 +5,8 @@ mod process_tree;
 mod safety_checker;
 mod service_classifier;
 mod terminator;
+#[cfg(windows)]
+mod windows_command;
 
 use commands::{
     get_process_detail, get_source_icon, open_directory, scan_ports, scan_ports_stream,

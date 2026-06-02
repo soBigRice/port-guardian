@@ -41,6 +41,8 @@ pub fn resolve_process(pid: u32) -> Result<ProcessInfo, String> {
 // ═══════════════════════════════════════════════════════════════
 
 #[cfg(windows)]
+use crate::windows_command::hidden_command;
+#[cfg(windows)]
 use std::collections::HashMap;
 #[cfg(windows)]
 use std::sync::Mutex;
@@ -71,7 +73,7 @@ pub fn prefetch_all_processes() {
                        Write-Output '---'; \
                      }";
 
-    let output = match std::process::Command::new("powershell")
+    let output = match hidden_command("powershell")
         .args(["-NoProfile", "-NonInteractive", "-Command", ps_script])
         .output()
     {
@@ -295,7 +297,7 @@ fn get_ps_info(pid: u32) -> Result<(u32, String, String, String), String> {
         pid
     );
 
-    let output = std::process::Command::new("powershell")
+    let output = hidden_command("powershell")
         .args(["-NoProfile", "-NonInteractive", "-Command", &ps_script])
         .output()
         .map_err(|e| format!("Failed to run PowerShell: {}", e))?;
@@ -347,7 +349,7 @@ fn get_windows_process_user(pid: u32) -> String {
         pid
     );
 
-    let output = std::process::Command::new("powershell")
+    let output = hidden_command("powershell")
         .args(["-NoProfile", "-NonInteractive", "-Command", &ps_script])
         .output();
 
@@ -392,7 +394,7 @@ fn get_executable_path(pid: u32) -> String {
         pid
     );
 
-    let output = std::process::Command::new("powershell")
+    let output = hidden_command("powershell")
         .args(["-NoProfile", "-NonInteractive", "-Command", &ps_script])
         .output();
 

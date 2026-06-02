@@ -66,9 +66,9 @@ pub fn scan_listening_ports() -> Result<Vec<PortInfo>, String> {
 /// 扫描本机 TCP 监听端口（Windows 版本，使用 netstat）
 #[cfg(windows)]
 pub fn scan_listening_ports() -> Result<Vec<PortInfo>, String> {
-    use std::process::Command;
+    use crate::windows_command::hidden_command;
 
-    let output = Command::new("netstat")
+    let output = hidden_command("netstat")
         .args(["-ano", "-p", "tcp"])
         .output()
         .map_err(|e| format!("Failed to run netstat: {}", e))?;

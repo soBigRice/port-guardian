@@ -490,6 +490,7 @@ fn extract_field(s: &str) -> (&str, &str) {
 #[cfg(windows)]
 fn get_process_brief(pid: u32) -> Result<(u32, String, String, String), String> {
     use crate::process_resolver;
+    use crate::windows_command::hidden_command;
 
     // 先通过缓存获取
     if let Ok(info) = process_resolver::resolve_process(pid) {
@@ -508,7 +509,7 @@ fn get_process_brief(pid: u32) -> Result<(u32, String, String, String), String> 
         pid
     );
 
-    let output = std::process::Command::new("powershell")
+    let output = hidden_command("powershell")
         .args(["-NoProfile", "-NonInteractive", "-Command", &ps_script])
         .output()
         .map_err(|e| format!("PowerShell failed: {}", e))?;
