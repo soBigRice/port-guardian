@@ -163,11 +163,17 @@ function App() {
     }
 
     if (silentScanRef.current) {
-      // 静默模式：用新扫描结果替换旧列表，不闪屏
-      const pending = pendingServicesRef.current;
-      if (pending.length > 0) {
-        setServices(pending);
-      }
+      // 静默模式：增量 diff — 新增的加入、消失的移除、不变的不动
+      const newResults = pendingServicesRef.current;
+      const newIds = new Set(newResults.map((s) => s.id));
+      setServices((prev) => {
+        const merged = prev.filter((s) => newIds.has(s.id)); // 移除消失的
+        const existingIds = new Set(merged.map((s) => s.id));
+        for (const s of newResults) {
+          if (!existingIds.has(s.id)) merged.push(s); // 加入新增的
+        }
+        return merged;
+      });
       pendingServicesRef.current = [];
     } else {
       flushPendingRef.current();
