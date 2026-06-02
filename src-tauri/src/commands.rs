@@ -186,30 +186,39 @@ pub fn get_process_detail(pid: u32) -> Result<ProcessDetail, String> {
 #[tauri::command]
 pub fn terminate_process(pid: u32, force: bool) -> Result<TerminateResult, String> {
     if force {
-        Ok(terminator::force_terminate(pid))
+        let result = terminator::force_terminate(pid);
+        if result.success {
+            // 等待进程真正退出（最多 3 秒），替代硬编码 sleep
+            terminator::wait_for_process_exit(pid, 3000);
+            Ok(TerminateResult {
+                port_released: !terminator::is_process_alive(pid),
+                ..result
+            })
+        } else {
+            Ok(result)
+        }
     } else {
         let result = terminator::terminate(pid);
         if result.success {
-            // 等待 500ms 后检查进程是否已退出
-            std::thread::sleep(std::time::Duration::from_millis(500));
-            let mut result = result;
-            if !terminator::is_process_alive(pid) {
-                result.port_released = true;
-                result.message = format!("进程 {} 已成功终止", pid);
-            }
-            Ok(result)
+            // 等待进程真正退出（最多 2 秒）
+            terminator::wait_for_process_exit(pid, 2000);
+            Ok(TerminateResult {
+                port_released: !terminator::is_process_alive(pid),
+                message: format!("进程 {} 已成功终止", pid),
+                ..result
+            })
         } else {
             // Windows: 普通 taskkill 经常失败（WM_CLOSE 对控制台进程无效），
             // 自动回退到强制终止 taskkill /F
             let force_result = terminator::force_terminate(pid);
             if force_result.success {
-                std::thread::sleep(std::time::Duration::from_millis(300));
-                let mut force_result = force_result;
-                if !terminator::is_process_alive(pid) {
-                    force_result.port_released = true;
-                    force_result.message = format!("进程 {} 已强制终止", pid);
-                }
-                Ok(force_result)
+                // 等待进程真正退出（最多 3 秒）
+                terminator::wait_for_process_exit(pid, 3000);
+                Ok(TerminateResult {
+                    port_released: !terminator::is_process_alive(pid),
+                    message: format!("进程 {} 已强制终止", pid),
+                    ..force_result
+                })
             } else {
                 // 两次都失败，返回更有用的错误提示
                 let mut msg = force_result.message;
@@ -224,6 +233,12 @@ pub fn terminate_process(pid: u32, force: bool) -> Result<TerminateResult, Strin
             }
         }
     }
+}
+
+/// 检查指定端口是否仍在监听（轻量级，单端口查询）
+#[tauri::command]
+pub fn check_port_listening(port: u16) -> bool {
+    terminator::is_port_listening(port)
 }
 
 /// 在文件管理器中打开指定路径（目录或文件所在目录）

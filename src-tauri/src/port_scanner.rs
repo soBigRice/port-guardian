@@ -63,65 +63,45 @@ pub fn scan_listening_ports() -> Result<Vec<PortInfo>, String> {
     Ok(ports)
 }
 
-/// 扫描本机 TCP 监听端口（Windows 版本，使用 netstat）
+/// 扫描本机 TCP 监听端口（Windows 版本，使用 netstat2 调用 GetExtendedTcpTable API）
 #[cfg(windows)]
 pub fn scan_listening_ports() -> Result<Vec<PortInfo>, String> {
-    use crate::windows_command::hidden_command;
+    use netstat2::{
+        get_sockets_info, AddressFamilyFlags, ProtocolFlags, ProtocolSocketInfo, TcpState,
+    };
 
-    let output = hidden_command("netstat")
-        .args(["-ano", "-p", "tcp"])
-        .output()
-        .map_err(|e| format!("Failed to run netstat: {}", e))?;
+    let af_flags = AddressFamilyFlags::IPV4 | AddressFamilyFlags::IPV6;
+    let proto_flags = ProtocolFlags::TCP;
+    let sockets =
+        get_sockets_info(af_flags, proto_flags).map_err(|e| format!("GetExtendedTcpTable: {}", e))?;
 
-    let stdout = String::from_utf8_lossy(&output.stdout);
     let mut ports = Vec::new();
 
-    for line in stdout.lines() {
-        let line = line.trim();
-        // netstat 输出格式:
-        //   TCP    0.0.0.0:8080           0.0.0.0:0              LISTENING       12345
-        //   TCP    [::]:8080              [::]:0                 LISTENING       12345
-        if !line.starts_with("TCP") {
-            continue;
+    for si in &sockets {
+        if let ProtocolSocketInfo::Tcp(tcp_si) = &si.protocol_socket_info {
+            // 只要 LISTEN 状态
+            if tcp_si.state != TcpState::Listen {
+                continue;
+            }
+
+            let port = tcp_si.local_port;
+            let addr = tcp_si.local_addr.to_string();
+
+            for &pid in &si.associated_pids {
+                // 去重（同一进程同一端口可能有 IPv4 和 IPv6 两条记录）
+                if ports.iter().any(|p: &PortInfo| p.pid == pid && p.port == port) {
+                    continue;
+                }
+
+                ports.push(PortInfo {
+                    port,
+                    protocol: "TCP".to_string(),
+                    local_address: addr.clone(),
+                    state: "LISTEN".to_string(),
+                    pid,
+                });
+            }
         }
-
-        let parts: Vec<&str> = line.split_whitespace().collect();
-        if parts.len() < 5 {
-            continue;
-        }
-
-        // 只要 LISTENING 状态
-        if parts[3] != "LISTENING" {
-            continue;
-        }
-
-        let local_addr = parts[1];
-        let pid: u32 = match parts[4].parse() {
-            Ok(v) => v,
-            Err(_) => continue,
-        };
-
-        let (addr, port) = extract_windows_addr_port(local_addr);
-        let port = match port {
-            Some(p) => p,
-            None => continue,
-        };
-
-        // 去重
-        if ports
-            .iter()
-            .any(|p: &PortInfo| p.pid == pid && p.port == port)
-        {
-            continue;
-        }
-
-        ports.push(PortInfo {
-            port,
-            protocol: "TCP".to_string(),
-            local_address: addr,
-            state: "LISTEN".to_string(),
-            pid,
-        });
     }
 
     Ok(ports)
@@ -149,29 +129,4 @@ fn parse_address_port(name: &str) -> (String, Option<u16>) {
         }
     }
     (cleaned.to_string(), None)
-}
-
-/// 解析 Windows netstat 地址字段，返回 (地址, 端口)
-/// 格式: 0.0.0.0:8080 或 [::]:8080 或 [::1]:8080
-#[cfg(windows)]
-fn extract_windows_addr_port(addr: &str) -> (String, Option<u16>) {
-    if addr.starts_with('[') {
-        // IPv6: [::]:8080 或 [::1]:8080
-        if let Some(bracket_end) = addr.find("]:") {
-            let ip = &addr[1..bracket_end];
-            let port_str = &addr[bracket_end + 2..];
-            if let Ok(port) = port_str.parse::<u16>() {
-                return (ip.to_string(), Some(port));
-            }
-        }
-    } else if let Some(idx) = addr.rfind(':') {
-        // IPv4: 0.0.0.0:8080
-        let ip = &addr[..idx];
-        let port_str = &addr[idx + 1..];
-        if let Ok(port) = port_str.parse::<u16>() {
-            let addr = if ip == "*" { "0.0.0.0" } else { ip };
-            return (addr.to_string(), Some(port));
-        }
-    }
-    (addr.to_string(), None)
 }

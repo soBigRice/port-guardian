@@ -88,8 +88,23 @@ pub fn is_process_alive(pid: u32) -> bool {
     }
 }
 
+/// 等待进程退出（Unix：轮询 kill -0）
+/// 返回 true 表示进程已退出，false 表示超时
+#[cfg(unix)]
+pub fn wait_for_process_exit(pid: u32, timeout_ms: u32) -> bool {
+    let start = std::time::Instant::now();
+    let timeout = std::time::Duration::from_millis(timeout_ms as u64);
+
+    while start.elapsed() < timeout {
+        if !is_process_alive(pid) {
+            return true;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    !is_process_alive(pid)
+}
+
 /// 检查端口是否仍然被监听
-#[allow(dead_code)]
 #[cfg(unix)]
 pub fn is_port_listening(port: u16) -> bool {
     let output = std::process::Command::new("lsof")
@@ -185,42 +200,67 @@ pub fn force_terminate(pid: u32) -> TerminateResult {
     }
 }
 
-/// 检查进程是否仍然存在（Windows：tasklist）
+/// 检查进程是否仍然存在（Windows：OpenProcess API，比 tasklist 快得多）
 #[cfg(windows)]
 pub fn is_process_alive(pid: u32) -> bool {
-    let output = crate::windows_command::hidden_command("tasklist")
-        .args(["/FI", &format!("PID eq {}", pid), "/NH"])
-        .output();
+    use windows::Win32::Foundation::CloseHandle;
+    use windows::Win32::System::Threading::{OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION};
 
-    match output {
-        Ok(out) => {
-            let stdout = String::from_utf8_lossy(&out.stdout);
-            // 如果进程存在，输出包含进程名；如果不存在，输出 "没有运行的任务匹配..."
-            // 英文系统: "No tasks are running which match..."
-            !stdout.contains("No tasks")
-                && !stdout.contains("没有运行")
-                && !stdout.trim().is_empty()
+    unsafe {
+        match OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid) {
+            Ok(handle) => {
+                let _ = CloseHandle(handle);
+                true
+            }
+            Err(_) => false,
         }
-        Err(_) => false,
     }
 }
 
-/// 检查端口是否仍然被监听（Windows：netstat）
-#[allow(dead_code)]
+/// 等待进程退出（Windows：OpenProcess + WaitForSingleObject）
+/// 返回 true 表示进程已退出，false 表示超时
+#[cfg(windows)]
+pub fn wait_for_process_exit(pid: u32, timeout_ms: u32) -> bool {
+    use windows::Win32::Foundation::CloseHandle;
+    use windows::Win32::System::Threading::{
+        OpenProcess, WaitForSingleObject, INFINITE, PROCESS_SYNCHRONIZE,
+    };
+
+    unsafe {
+        let handle = match OpenProcess(PROCESS_SYNCHRONIZE, false, pid) {
+            Ok(h) => h,
+            Err(_) => return true, // 进程已不存在，视为退出
+        };
+
+        let timeout = if timeout_ms == 0 { INFINITE } else { timeout_ms };
+        let result = WaitForSingleObject(handle, timeout);
+        let _ = CloseHandle(handle);
+
+        // WAIT_OBJECT_0 (0) 表示进程已退出
+        result.0 == 0
+    }
+}
+
+/// 检查端口是否仍然被监听（Windows：netstat2 API，毫秒级）
 #[cfg(windows)]
 pub fn is_port_listening(port: u16) -> bool {
-    let output = crate::windows_command::hidden_command("netstat")
-        .args(["-ano", "-p", "tcp"])
-        .output();
+    use netstat2::{
+        get_sockets_info, AddressFamilyFlags, ProtocolFlags, ProtocolSocketInfo, TcpState,
+    };
 
-    match output {
-        Ok(out) => {
-            let stdout = String::from_utf8_lossy(&out.stdout);
-            let port_str = format!(":{}", port);
-            stdout
-                .lines()
-                .any(|line| line.contains(&port_str) && line.contains("LISTENING"))
-        }
+    let sockets = get_sockets_info(
+        AddressFamilyFlags::IPV4 | AddressFamilyFlags::IPV6,
+        ProtocolFlags::TCP,
+    );
+
+    match sockets {
+        Ok(sockets) => sockets.iter().any(|si| {
+            if let ProtocolSocketInfo::Tcp(tcp) = &si.protocol_socket_info {
+                tcp.local_port == port && tcp.state == TcpState::Listen
+            } else {
+                false
+            }
+        }),
         Err(_) => false,
     }
 }

@@ -9,8 +9,8 @@ mod terminator;
 mod windows_command;
 
 use commands::{
-    get_process_detail, get_source_icon, open_directory, scan_ports, scan_ports_stream,
-    terminate_process,
+    check_port_listening, get_process_detail, get_source_icon, open_directory, scan_ports,
+    scan_ports_stream, terminate_process,
 };
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -25,6 +25,7 @@ pub fn run() {
             scan_ports_stream,
             get_process_detail,
             terminate_process,
+            check_port_listening,
             open_directory,
             get_source_icon,
         ])

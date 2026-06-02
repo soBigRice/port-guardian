@@ -281,18 +281,44 @@ function App() {
   };
 
   const handleKill = async (service: PortService, force: boolean) => {
+    setKillTarget(null);
+
     try {
-      const result = await invoke<{ success: boolean; message: string }>(
-        "terminate_process",
-        { pid: service.pid, force }
-      );
-      if (result.success) {
-        setKillTarget(null);
-        setSelected(null);
-        setTimeout(refresh, 500);
-      } else {
+      const result = await invoke<{
+        success: boolean;
+        message: string;
+        port_released: boolean;
+      }>("terminate_process", { pid: service.pid, force });
+
+      if (!result.success) {
         alert(result.message);
+        return;
       }
+
+      if (result.port_released) {
+        // 端口已释放，从列表移除
+        setServices((prev) => prev.filter((s) => s.id !== service.id));
+        setSelected((prev) => (prev?.id === service.id ? null : prev));
+        return;
+      }
+
+      // 进程已退出但端口可能仍处于 TIME_WAIT，轮询等待端口释放
+      const maxRetries = 30; // 最多等 3 秒
+      for (let i = 0; i < maxRetries; i++) {
+        await new Promise((r) => setTimeout(r, 100));
+        const listening = await invoke<boolean>("check_port_listening", {
+          port: service.port,
+        });
+        if (!listening) {
+          // 端口已释放，从列表移除
+          setServices((prev) => prev.filter((s) => s.id !== service.id));
+          setSelected((prev) => (prev?.id === service.id ? null : prev));
+          return;
+        }
+      }
+
+      // 超时仍未释放，刷新列表获取最新状态
+      refresh();
     } catch (err) {
       alert(`终止失败: ${err}`);
     }
