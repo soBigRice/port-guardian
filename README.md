@@ -277,6 +277,22 @@ npm run tauri build
 - 解决方案：在 `bundle` 配置中启用 `"createUpdaterArtifacts": "v1Compatible"`，与当前 `latest.json` 端点格式保持一致。
 - 后续注意点：每次调整发布流程后，需验证 Release 中是否包含 `latest.json`、平台安装包和签名文件三类关键产物。
 
+#### 2026-06-02：Windows 发布任务在版本同步步骤失败
+
+- 问题描述：`release (windows-latest, x86_64-pc-windows-msvc)` 在同步版本号时失败，导致 Windows Release 产物无法继续构建。
+- 出现原因：GitHub Actions 在 Windows runner 上默认使用 PowerShell 执行 `run` 脚本，但版本同步脚本使用的是 bash 语法。
+- 影响范围：只有 Windows 发布任务受影响；macOS 任务不受该脚本 shell 默认值影响。
+- 解决方案：在 `Sync app version from tag` 步骤显式设置 `shell: bash`，让所有平台使用一致的脚本解释器。
+- 后续注意点：跨平台 workflow 中如果脚本包含 bash 变量展开、here-doc 或 POSIX 条件判断，必须显式声明 `shell: bash`。
+
+#### 2026-06-02：公开仓库后更新仍失败（Release 签名私钥缺失）
+
+- 问题描述：仓库改为公开后，应用内“检查更新”仍失败，`latest.json` 仍然返回 404。
+- 出现原因：公开仓库只解决匿名下载权限；实际 Release 工作流仍因缺少 `TAURI_SIGNING_PRIVATE_KEY` 无法完成 updater 签名，所以 GitHub 没有成功发布 `latest.json`。
+- 影响范围：macOS/Windows 发布任务都需要该私钥；只要签名失败，自动更新链路就没有可下载的更新元数据。
+- 解决方案：重新生成 Tauri updater 签名 key，将公钥写入 `src-tauri/tauri.conf.json`，将私钥写入 GitHub Actions Secret `TAURI_SIGNING_PRIVATE_KEY`，并在 workflow 中增加私钥缺失的前置校验。
+- 后续注意点：私钥不能提交到仓库；如果未来已经对外发布过旧公钥版本，替换 updater 公钥会让旧版本无法自动更新到新版本，需保留旧私钥或设计过渡版本。
+
 ---
 
 ## 📦 依赖说明
