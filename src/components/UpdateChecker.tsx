@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { type Update } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { formatUpdateError } from "../utils/updateErrors";
+import { useTranslation } from "../i18n";
 
 interface Props {
   show: boolean;
@@ -11,6 +12,7 @@ interface Props {
 }
 
 export default function UpdateChecker({ show, updateInfo, onAutoCheck, onClose }: Props) {
+  const { t } = useTranslation();
   const [downloading, setDownloading] = useState(false);
   const [progress, setProgress] = useState(0);
   const [totalSize, setTotalSize] = useState(0);
@@ -48,7 +50,7 @@ export default function UpdateChecker({ show, updateInfo, onAutoCheck, onClose }
       });
       setInstalled(true);
     } catch (err) {
-      const message = formatUpdateError(err);
+      const message = formatUpdateError(err, t);
       setDownloadError(message);
       console.error("下载更新失败:", err);
     } finally {
@@ -76,14 +78,14 @@ export default function UpdateChecker({ show, updateInfo, onAutoCheck, onClose }
     <div className="dialog-overlay" onClick={onClose}>
       <div className="dialog update-dialog" onClick={(e) => e.stopPropagation()}>
         <div className="update-icon">&#8635;</div>
-        <h3>发现新版本</h3>
+        <h3>{t("updateChecker.title")}</h3>
         <div className="update-version">
           v{updateInfo.version}
         </div>
 
         {updateInfo.body && (
           <div className="update-changelog">
-            <h4>更新内容</h4>
+            <h4>{t("updateChecker.changelog")}</h4>
             <p>{updateInfo.body}</p>
           </div>
         )}
@@ -101,7 +103,7 @@ export default function UpdateChecker({ show, updateInfo, onAutoCheck, onClose }
             <span className="progress-text">
               {totalSize > 0
                 ? `${formatBytes(progress)} / ${formatBytes(totalSize)}`
-                : "正在下载..."}
+                : t("updateChecker.downloading")}
             </span>
           </div>
         )}
@@ -116,21 +118,21 @@ export default function UpdateChecker({ show, updateInfo, onAutoCheck, onClose }
           {!downloading && !installed && (
             <>
               <button className="btn" onClick={onClose}>
-                稍后再说
+                {t("updateChecker.later")}
               </button>
               <button className="btn btn-primary" onClick={handleDownload}>
-                立即更新
+                {t("updateChecker.updateNow")}
               </button>
             </>
           )}
           {downloading && (
             <button className="btn" disabled>
-              下载中...
+              {t("updateChecker.downloadingBtn")}
             </button>
           )}
           {installed && (
             <button className="btn btn-primary" onClick={handleRestart}>
-              重启应用
+              {t("updateChecker.restartApp")}
             </button>
           )}
         </div>

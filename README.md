@@ -1,5 +1,7 @@
 # 🛡️ Port Guardian — 端口守卫
 
+> **[English Version](README_EN.md)** | **中文版**
+
 <div align="center">
 
 <img src="src-tauri/icons/icon.png" alt="Port Guardian 图标" width="96" height="96" />
