@@ -13,10 +13,9 @@
 ![React](https://img.shields.io/badge/React-19-61DAFB)
 ![Rust](https://img.shields.io/badge/Rust-2024-orange)
 ![License](https://img.shields.io/badge/license-MIT-green)
-![Version](https://img.shields.io/badge/version-0.1.12-brightgreen)
+![Version](https://img.shields.io/github/v/release/soBigRice/port-guardian?color=brightgreen&label=version)
 
-[![Download macOS DMG](https://img.shields.io/badge/Download-macOS%20DMG-111111?logo=apple&logoColor=white)](https://github.com/soBigRice/port-guardian/releases/download/v0.1.12/Port.Guardian_0.1.12_universal.dmg)
-[![Download Windows EXE](https://img.shields.io/badge/Download-Windows%20EXE-0078D4?logo=windows&logoColor=white)](https://github.com/soBigRice/port-guardian/releases/download/v0.1.12/Port.Guardian_0.1.12_x64-setup.exe)
+[![Download Latest](https://img.shields.io/badge/📥_Download_Latest-GitHub%20Releases-blue?style=for-the-badge)](https://github.com/soBigRice/port-guardian/releases/latest)
 
 </div>
 
@@ -155,14 +154,12 @@ port-guardian/
 
 ### Download & Install
 
-Current version: `v0.1.12`
+Go to [GitHub Releases](https://github.com/soBigRice/port-guardian/releases/latest) to download the latest installer for your platform:
 
-| Platform | Direct Download |
-|----------|-----------------|
-| macOS | [Download `Port.Guardian_0.1.12_universal.dmg`](https://github.com/soBigRice/port-guardian/releases/download/v0.1.12/Port.Guardian_0.1.12_universal.dmg) |
-| Windows | [Download `Port.Guardian_0.1.12_x64-setup.exe`](https://github.com/soBigRice/port-guardian/releases/download/v0.1.12/Port.Guardian_0.1.12_x64-setup.exe) |
+- **macOS**: Download the `.dmg` file (supports Intel and Apple Silicon)
+- **Windows**: Download the `.exe` installer
 
-For historical versions or signature verification files, visit the [GitHub Releases](https://github.com/soBigRice/port-guardian/releases/latest) page.
+> After installation, you can click "Check for Updates" in the app settings to get new versions.
 
 After installation, launch the app. You can check for updates in the app's settings page.
 

@@ -13,10 +13,9 @@
 ![React](https://img.shields.io/badge/React-19-61DAFB)
 ![Rust](https://img.shields.io/badge/Rust-2024-orange)
 ![License](https://img.shields.io/badge/license-MIT-green)
-![Version](https://img.shields.io/badge/version-0.1.12-brightgreen)
+![Version](https://img.shields.io/github/v/release/soBigRice/port-guardian?color=brightgreen&label=version)
 
-[![下载 macOS DMG](https://img.shields.io/badge/下载-macOS%20DMG-111111?logo=apple&logoColor=white)](https://github.com/soBigRice/port-guardian/releases/download/v0.1.12/Port.Guardian_0.1.12_universal.dmg)
-[![下载 Windows EXE](https://img.shields.io/badge/下载-Windows%20EXE-0078D4?logo=windows&logoColor=white)](https://github.com/soBigRice/port-guardian/releases/download/v0.1.12/Port.Guardian_0.1.12_x64-setup.exe)
+[![下载最新版](https://img.shields.io/badge/📥_下载最新版-GitHub%20Releases-blue?style=for-the-badge)](https://github.com/soBigRice/port-guardian/releases/latest)
 
 </div>
 
@@ -155,16 +154,12 @@ port-guardian/
 
 ### 下载安装
 
-当前版本：`v0.1.12`
+前往 [GitHub Releases](https://github.com/soBigRice/port-guardian/releases/latest) 页面，下载对应平台的最新安装包：
 
-| 系统 | 一键下载 |
-|------|----------|
-| macOS | [下载 `Port.Guardian_0.1.12_universal.dmg`](https://github.com/soBigRice/port-guardian/releases/download/v0.1.12/Port.Guardian_0.1.12_universal.dmg) |
-| Windows | [下载 `Port.Guardian_0.1.12_x64-setup.exe`](https://github.com/soBigRice/port-guardian/releases/download/v0.1.12/Port.Guardian_0.1.12_x64-setup.exe) |
+- **macOS**: 下载 `.dmg` 文件（支持 Intel 和 Apple Silicon）
+- **Windows**: 下载 `.exe` 安装程序
 
-如需查看历史版本或校验签名文件，可打开 [GitHub Releases](https://github.com/soBigRice/port-guardian/releases/latest) 页面。
-
-安装后启动应用，后续可在应用设置页点击“检查更新”获取新版本。
+> 安装后启动应用，后续可在应用设置页点击”检查更新”获取新版本。
 
 #### macOS 首次安装打不开的处理
 
@@ -378,7 +373,7 @@ npm run tauri build
 ## ⚡ 工作原理
 
 ### 1. 端口扫描
-通过执行 `lsof -nP -iTCP -sTCP:LISTEN` 获取所有 TCP 监听端口，解析出端口号、PID 等基础信息。
+通过 `netstat2` 调用系统原生 API（macOS: libproc, Windows: GetExtendedTcpTable/UdpTable, Linux: /proc/net）扫描 TCP 监听端口和 UDP 绑定端口。
 
 ### 2. 进程解析
 对每个 PID 执行 `ps -p <PID>` 获取进程详情（父进程 PID、用户、命令行），再通过 `lsof -p <PID>` 获取工作目录和可执行文件路径。
