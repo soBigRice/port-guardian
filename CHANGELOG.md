@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.2.1] - 2026-06-30
+
+### 🐛 Bug Fixes
+
+- **macOS 打包后路径不显示**: 用 `proc_pidinfo` / `proc_pidpath` 系统调用替代 `lsof` 子进程，修复 Hardened Runtime 下无法读取其他进程信息的问题；中文路径正常显示
+- **Windows 中文路径支持**: 通过 NT API (`NtQueryInformationProcess` + `ReadProcessMemory`) 直接读取进程 PEB 获取工作目录，支持中文路径
+- **README 动态化**: 版本徽章改为 shields.io 自动读取，下载链接统一指向 `releases/latest`，不再需要手动更新
+
+### 🔧 Other
+
+- CI workflow 自动从 CHANGELOG.md 提取更新日志填充 Release body 和 `latest.json`
+
 ## [0.2.0] - 2026-06-30
 
 ### 🚀 Performance
