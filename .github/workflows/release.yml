@@ -91,6 +91,30 @@ jobs:
             exit 1
           fi
 
+      - name: Extract changelog for this version
+        id: changelog
+        shell: bash
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          BODY=$(node -e '
+            const fs = require("fs");
+            const version = process.argv[1];
+            const changelog = fs.readFileSync("CHANGELOG.md", "utf8");
+            const pattern = new RegExp(`^## \\[${version}\\][\\s\\S]*?(?=^## \\[|$)`, "m");
+            const match = changelog.match(pattern);
+            if (match) {
+              console.log(match[0].trim());
+            } else {
+              console.log("See the assets below to download and install.");
+            }
+          ' "$VERSION")
+          # 用 EOF 方式写入多行 output
+          {
+            echo "body<<CHANGELOG_EOF"
+            echo "$BODY"
+            echo "CHANGELOG_EOF"
+          } >> "$GITHUB_OUTPUT"
+
       - name: Build with Tauri
         uses: tauri-apps/tauri-action@v0
         env:
@@ -100,7 +124,7 @@ jobs:
         with:
           tagName: ${{ github.ref_name }}
           releaseName: "Port Guardian ${{ github.ref_name }}"
-          releaseBody: "See the assets below to download and install."
+          releaseBody: ${{ steps.changelog.outputs.body }}
           releaseDraft: true
           prerelease: false
           args: --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
