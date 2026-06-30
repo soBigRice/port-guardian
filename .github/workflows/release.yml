@@ -156,9 +156,24 @@ jobs:
             }
           ' <<< "$assets_json"
 
+          # 从 CHANGELOG.md 提取当前版本的更新日志作为 Release body
+          VERSION="${GITHUB_REF_NAME#v}"
+          body=$(node -e '
+            const fs = require("fs");
+            const version = process.argv[1];
+            const changelog = fs.readFileSync("CHANGELOG.md", "utf8");
+            const pattern = new RegExp(`^## \\[${version}\\][\\s\\S]*?(?=^## \\[|$)`, "m");
+            const match = changelog.match(pattern);
+            if (match) {
+              console.log(match[0].trim());
+            } else {
+              console.log("See the assets below to download and install.");
+            }
+          ' "$VERSION")
+
           curl -fsSL -X PATCH "${headers[@]}" \
             -H "Content-Type: application/json" \
-            -d '{"draft":false,"prerelease":false}' \
+            -d "$(node -e 'console.log(JSON.stringify({draft:false, prerelease:false, body:process.argv[1]}))' "$body")" \
             "${api}/releases/${release_id}" >/dev/null
 
           echo "Published release ${GITHUB_REF_NAME}."
