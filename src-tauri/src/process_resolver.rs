@@ -368,12 +368,124 @@ fn get_windows_process_user(pid: u32) -> String {
     }
 }
 
-/// 获取进程工作目录（Windows：不可靠，返回空字符串）
+/// 获取进程工作目录（Windows：通过 NT API 读取进程 PEB，支持中文路径）
 #[cfg(windows)]
-fn get_cwd(_pid: u32) -> String {
-    // Windows 的 Win32_Process 不可靠地暴露 CWD
-    // 返回空字符串，不影响核心功能
-    String::new()
+fn get_cwd(pid: u32) -> String {
+    use windows::Win32::Foundation::{CloseHandle, HANDLE};
+    use windows::Win32::System::Threading::{
+        OpenProcess, PROCESS_QUERY_INFORMATION, PROCESS_VM_READ,
+    };
+
+    // ── NT API FFI 定义 ──
+    #[repr(C)]
+    struct ProcessBasicInformation {
+        reserved1: *mut core::ffi::c_void,
+        peb_base_address: *mut core::ffi::c_void,
+        reserved2: [usize; 2],
+        unique_process_id: usize,
+        reserved3: usize,
+    }
+
+    // PEB 64-bit 布局：ProcessParameters 在偏移 0x20
+    // RTL_USER_PROCESS_PARAMETERS：CurrentDirectory 在偏移 0x38
+    // CurrentDirectory.Buffer 在 CurrentDirectory 起始 +0x40
+
+    extern "system" {
+        fn NtQueryInformationProcess(
+            process_handle: HANDLE,
+            process_information_class: u32,
+            process_information: *mut core::ffi::c_void,
+            process_information_length: u32,
+            return_length: *mut u32,
+        ) -> i32;
+    }
+
+    unsafe {
+        // 打开进程：需要查询信息 + 读内存权限
+        let handle = match OpenProcess(
+            PROCESS_QUERY_INFORMATION | PROCESS_VM_READ,
+            false,
+            pid,
+        ) {
+            Ok(h) => h,
+            Err(_) => return String::new(),
+        };
+
+        // 1. 查询 PEB 基址
+        let mut pbi = ProcessBasicInformation {
+            reserved1: core::ptr::null_mut(),
+            peb_base_address: core::ptr::null_mut(),
+            reserved2: [0; 2],
+            unique_process_id: 0,
+            reserved3: 0,
+        };
+        let status = NtQueryInformationProcess(
+            handle,
+            0, // ProcessBasicInformation
+            &mut pbi as *mut _ as *mut core::ffi::c_void,
+            core::mem::size_of::<ProcessBasicInformation>() as u32,
+            core::ptr::null_mut(),
+        );
+        if status != 0 {
+            let _ = CloseHandle(handle);
+            return String::new();
+        }
+
+        // 2. 从 PEB 读取 ProcessParameters 指针（偏移 0x20）
+        let mut params_ptr: usize = 0;
+        let mut bytes_read = 0usize;
+        let ok = windows::Win32::System::Diagnostics::Debug::ReadProcessMemory(
+            handle,
+            (pbi.peb_base_address as usize + 0x20) as *const core::ffi::c_void,
+            &mut params_ptr as *mut _ as *mut core::ffi::c_void,
+            core::mem::size_of::<usize>(),
+            Some(&mut bytes_read),
+        );
+        if ok.is_err() || params_ptr == 0 {
+            let _ = CloseHandle(handle);
+            return String::new();
+        }
+
+        // 3. 读取 CurrentDirectory 缓冲区长度（偏移 0x3C，u16）和地址（偏移 0x40，usize）
+        let mut buf_len: u16 = 0;
+        let mut buf_addr: usize = 0;
+        let _ = windows::Win32::System::Diagnostics::Debug::ReadProcessMemory(
+            handle,
+            (params_ptr + 0x3C) as *const core::ffi::c_void,
+            &mut buf_len as *mut _ as *mut core::ffi::c_void,
+            2,
+            Some(&mut bytes_read),
+        );
+        let _ = windows::Win32::System::Diagnostics::Debug::ReadProcessMemory(
+            handle,
+            (params_ptr + 0x40) as *const core::ffi::c_void,
+            &mut buf_addr as *mut _ as *mut core::ffi::c_void,
+            core::mem::size_of::<usize>(),
+            Some(&mut bytes_read),
+        );
+        if buf_addr == 0 || buf_len == 0 {
+            let _ = CloseHandle(handle);
+            return String::new();
+        }
+
+        // 4. 读取 UTF-16 路径字符串
+        let char_count = (buf_len / 2) as usize;
+        let mut buf = vec![0u16; char_count];
+        let ok = windows::Win32::System::Diagnostics::Debug::ReadProcessMemory(
+            handle,
+            buf_addr as *const core::ffi::c_void,
+            buf.as_mut_ptr() as *mut core::ffi::c_void,
+            buf_len as usize,
+            Some(&mut bytes_read),
+        );
+        let _ = CloseHandle(handle);
+
+        if ok.is_err() {
+            return String::new();
+        }
+
+        String::from_utf16_lossy(&buf)
+    }
 }
 
 /// 获取进程可执行文件路径（Windows）
