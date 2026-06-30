@@ -2421,6 +2421,7 @@ name = "port-guardian"
 version = "0.2.0"
 dependencies = [
  "base64 0.22.1",
+ "libc",
  "netstat2",
  "serde",
  "serde_json",

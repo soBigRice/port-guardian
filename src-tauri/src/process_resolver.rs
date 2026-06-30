@@ -228,50 +228,126 @@ fn next_field(s: &str) -> (&str, &str) {
 }
 
 /// 获取进程工作目录
+/// macOS: 使用 proc_pidinfo 系统调用，不依赖 lsof 子进程，打包后也能正常工作
+/// Linux: 读取 /proc/<pid>/cwd 符号链接
 #[cfg(unix)]
 fn get_cwd(pid: u32) -> String {
-    use std::process::Command;
+    #[cfg(target_os = "macos")]
+    {
+        return get_cwd_macos(pid);
+    }
 
-    let output = Command::new("lsof")
-        .args(["-p", &pid.to_string(), "-a", "-d", "cwd"])
-        .output();
-
-    match output {
-        Ok(out) => {
-            let stdout = String::from_utf8_lossy(&out.stdout);
-            for line in stdout.lines().skip(1) {
-                let parts: Vec<&str> = line.split_whitespace().collect();
-                if parts.len() >= 9 {
-                    return parts[8..].join(" ");
-                }
-            }
-            String::new()
-        }
-        Err(_) => String::new(),
+    #[cfg(target_os = "linux")]
+    {
+        return get_cwd_linux(pid);
     }
 }
 
+/// macOS: 通过 proc_pidinfo(PROC_PIDVNODEPATHINFO) 获取进程当前目录
+#[cfg(target_os = "macos")]
+fn get_cwd_macos(pid: u32) -> String {
+    // PROC_PIDVNODEPATHINFO = 9
+    const PROC_PIDVNODEPATHINFO: u32 = 9;
+
+    // 匹配 macOS 内核头文件中的结构体布局
+    #[repr(C)]
+    struct VnodeInfo {
+        vi_type: i32,
+        vi_fsid: u32,
+        vi_dev: u32,
+        vi_mode: u16,
+        _pad1: u16,
+        vi_nlink: u32,
+        vi_ino: u64,
+        vi_user: u64,
+        vi_group: u64,
+        vi_atime: i64,
+        vi_atime_nsec: i64,
+        vi_mtime: i64,
+        vi_mtime_nsec: i64,
+        vi_ctime: i64,
+        vi_ctime_nsec: i64,
+        vi_birthtime: i64,
+        vi_birthtime_nsec: i64,
+        vi_size: i64,
+        vi_blocks: i64,
+        vi_blocksize: i32,
+        _pad2: i32,
+        vi_flags: u32,
+        _pad3: u32,
+    }
+
+    #[repr(C)]
+    struct VnodeInfoWithPath {
+        vip_vi: VnodeInfo,
+        vip_path: [u8; 1024],
+    }
+
+    #[repr(C)]
+    struct ProcVnodePathInfo {
+        pvi_cdir: VnodeInfoWithPath,
+        pvi_rdir: VnodeInfoWithPath,
+    }
+
+    let mut info = core::mem::MaybeUninit::<ProcVnodePathInfo>::uninit();
+    let size = core::mem::size_of::<ProcVnodePathInfo>() as i32;
+
+    let ret = unsafe {
+        libc::proc_pidinfo(
+            pid as i32,
+            PROC_PIDVNODEPATHINFO as i32,
+            0,
+            info.as_mut_ptr() as *mut libc::c_void,
+            size,
+        )
+    };
+
+    if ret <= 0 {
+        return String::new();
+    }
+
+    let info = unsafe { info.assume_init() };
+    let path_bytes = &info.pvi_cdir.vip_path;
+    // 找到 null 终止符
+    let len = path_bytes.iter().position(|&b| b == 0).unwrap_or(path_bytes.len());
+    String::from_utf8_lossy(&path_bytes[..len]).to_string()
+}
+
+/// Linux: 读取 /proc/<pid>/cwd 符号链接
+#[cfg(target_os = "linux")]
+fn get_cwd_linux(pid: u32) -> String {
+    std::fs::read_link(format!("/proc/{}/cwd", pid))
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_default()
+}
+
 /// 获取进程可执行文件路径
+/// macOS: 使用 proc_pidpath 系统调用，打包后也能正常工作
+/// Linux: 读取 /proc/<pid>/exe 符号链接
 #[cfg(unix)]
 fn get_executable_path(pid: u32) -> String {
-    use std::process::Command;
-
-    let output = Command::new("lsof")
-        .args(["-p", &pid.to_string(), "-a", "-d", "txt"])
-        .output();
-
-    match output {
-        Ok(out) => {
-            let stdout = String::from_utf8_lossy(&out.stdout);
-            for line in stdout.lines().skip(1) {
-                let parts: Vec<&str> = line.split_whitespace().collect();
-                if parts.len() >= 9 {
-                    return parts[8..].join(" ");
-                }
-            }
-            String::new()
+    #[cfg(target_os = "macos")]
+    {
+        // proc_pidpath: 从进程 PID 获取可执行文件路径
+        unsafe extern "C" {
+            fn proc_pidpath(pid: libc::c_int, buf: *mut libc::c_void, bufsize: u32) -> libc::c_int;
         }
-        Err(_) => String::new(),
+        let mut buf = [0u8; 1024];
+        let ret = unsafe {
+            proc_pidpath(pid as i32, buf.as_mut_ptr() as *mut libc::c_void, 1024)
+        };
+        if ret <= 0 {
+            return String::new();
+        }
+        let len = buf.iter().position(|&b| b == 0).unwrap_or(buf.len());
+        return String::from_utf8_lossy(&buf[..len]).to_string();
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        return std::fs::read_link(format!("/proc/{}/exe", pid))
+            .map(|p| p.to_string_lossy().to_string())
+            .unwrap_or_default();
     }
 }
 
@@ -390,7 +466,7 @@ fn get_cwd(pid: u32) -> String {
     // RTL_USER_PROCESS_PARAMETERS：CurrentDirectory 在偏移 0x38
     // CurrentDirectory.Buffer 在 CurrentDirectory 起始 +0x40
 
-    extern "system" {
+    unsafe extern "system" {
         fn NtQueryInformationProcess(
             process_handle: HANDLE,
             process_information_class: u32,
