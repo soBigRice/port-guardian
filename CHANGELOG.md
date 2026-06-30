@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.2.2] - 2026-06-30
+
+### 🐛 Bug Fixes
+
+- 修复 CI 构建中 CHANGELOG.md 路径找不到的问题
+
 ## [0.2.1] - 2026-06-30
 
 ### 🐛 Bug Fixes
