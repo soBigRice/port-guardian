@@ -69,7 +69,7 @@ pub fn scan_ports() -> Result<Vec<PortService>, String> {
         );
 
         services.push(PortService {
-            id: format!("{}-{}", port_info.port, port_info.pid),
+            id: format!("{}-{}-{}", port_info.protocol, port_info.port, port_info.pid),
             port: port_info.port,
             protocol: port_info.protocol,
             local_address: port_info.local_address,
@@ -124,7 +124,7 @@ pub async fn scan_ports_stream(app: AppHandle) -> Result<(), String> {
         );
 
         let service = PortService {
-            id: format!("{}-{}", port_info.port, port_info.pid),
+            id: format!("{}-{}-{}", port_info.protocol, port_info.port, port_info.pid),
             port: port_info.port,
             protocol: port_info.protocol,
             local_address: port_info.local_address,
@@ -508,7 +508,8 @@ fn extract_windows_icon_data_url(exe_path: &str, cache_key: &str) -> Option<Stri
 
     // 写 PowerShell 脚本文件（避免命令行转义问题）
     let ps_content = format!(
-        "$ErrorActionPreference = 'SilentlyContinue'\r\n\
+        "chcp 65001 > $null\r\n\
+         $ErrorActionPreference = 'SilentlyContinue'\r\n\
          Add-Type -AssemblyName System.Drawing\r\n\
          $icon = [System.Drawing.Icon]::ExtractAssociatedIcon('{exe}')\r\n\
          if ($icon) {{\r\n\

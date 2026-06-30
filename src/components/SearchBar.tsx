@@ -1,3 +1,4 @@
+import { forwardRef } from "react";
 import { useTranslation } from "../i18n";
 
 interface Props {
@@ -5,10 +6,11 @@ interface Props {
   onChange: (v: string) => void;
 }
 
-export default function SearchBar({ value, onChange }: Props) {
+const SearchBar = forwardRef<HTMLInputElement, Props>(({ value, onChange }, ref) => {
   const { t } = useTranslation();
   return (
     <input
+      ref={ref}
       className="search-input"
       type="text"
       placeholder={t("searchBar.placeholder")}
@@ -16,4 +18,6 @@ export default function SearchBar({ value, onChange }: Props) {
       onChange={(e) => onChange(e.target.value)}
     />
   );
-}
+});
+
+export default SearchBar;

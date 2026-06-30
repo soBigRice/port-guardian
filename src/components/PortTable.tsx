@@ -11,11 +11,16 @@ interface Props {
   scanTotal: number;
   scannedCount: number;
   hasFilter: boolean;
+  selectedIds: Set<string>;
+  bookmarkedPorts: Set<number>;
   onSelect: (s: PortService) => void;
   onKill: (s: PortService) => void;
+  onToggleSelect: (id: string) => void;
+  onToggleSelectAll: () => void;
+  onToggleBookmark: (port: number) => void;
 }
 
-export default function PortTable({ services, selected, loading, scanTotal, scannedCount, hasFilter, onSelect, onKill }: Props) {
+export default function PortTable({ services, selected, loading, scanTotal, scannedCount, hasFilter, selectedIds, bookmarkedPorts, onSelect, onKill, onToggleSelect, onToggleSelectAll, onToggleBookmark }: Props) {
   const { t } = useTranslation();
 
   const handleOpenCwd = async (e: React.MouseEvent, cwd: string) => {
@@ -74,6 +79,14 @@ export default function PortTable({ services, selected, loading, scanTotal, scan
       <table className="port-table">
         <thead>
           <tr>
+            <th className="col-check">
+              <input
+                type="checkbox"
+                className="row-check"
+                checked={services.filter((s) => s.can_terminate).length > 0 && services.filter((s) => s.can_terminate).every((s) => selectedIds.has(s.id))}
+                onChange={onToggleSelectAll}
+              />
+            </th>
             <th>{t("portTable.header.port")}</th>
             <th>{t("portTable.header.serviceType")}</th>
             <th>{t("portTable.header.process")}</th>
@@ -89,10 +102,30 @@ export default function PortTable({ services, selected, loading, scanTotal, scan
           {services.map((s) => (
             <tr
               key={s.id}
-              className={selected?.id === s.id ? "selected" : ""}
+              className={`${selected?.id === s.id ? "selected" : ""} ${selectedIds.has(s.id) ? "checked" : ""}`}
               onClick={() => onSelect(s)}
             >
-              <td className="port-num">{s.port}</td>
+              <td className="col-check" onClick={(e) => e.stopPropagation()}>
+                {s.can_terminate && (
+                  <input
+                    type="checkbox"
+                    className="row-check"
+                    checked={selectedIds.has(s.id)}
+                    onChange={() => onToggleSelect(s.id)}
+                  />
+                )}
+              </td>
+              <td className="port-num">
+                <span
+                  className={`bookmark-star ${bookmarkedPorts.has(s.port) ? "active" : ""}`}
+                  onClick={(e) => { e.stopPropagation(); onToggleBookmark(s.port); }}
+                  title={bookmarkedPorts.has(s.port) ? "取消收藏" : "收藏"}
+                >
+                  {bookmarkedPorts.has(s.port) ? "★" : "☆"}
+                </span>
+                {s.port}
+                {s.protocol === "UDP" && <span className="badge badge-udp">UDP</span>}
+              </td>
               <td>
                 <span className="badge badge-service">
                   {s.service_name || s.service_type}

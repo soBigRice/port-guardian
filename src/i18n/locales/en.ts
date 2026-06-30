@@ -35,6 +35,9 @@ const en: typeof zh = {
     browserWarningAfter: "for full functionality",
     browserUpdateError: "Cannot check updates in browser preview. Please use the Tauri app.",
     terminateFailed: "Terminate failed:",
+    batchKill: "Batch Kill ({count})",
+    batchKilling: "Killing...",
+    export: "Export",
   },
   portTable: {
     header: {
@@ -83,6 +86,7 @@ const en: typeof zh = {
     terminateService: "Terminate Service",
     openDirTitle: "Click to open directory",
     openDirTitle2: "Click to open",
+    currentProcess: "current",
   },
   confirmDialog: {
     danger: {

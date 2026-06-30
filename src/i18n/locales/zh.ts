@@ -33,6 +33,9 @@ const zh = {
     browserWarningAfter: "启动以获得完整功能",
     browserUpdateError: "当前浏览器预览环境不能检查更新，请在 Tauri 应用内重试。",
     terminateFailed: "终止失败:",
+    batchKill: "批量终止 ({count})",
+    batchKilling: "终止中...",
+    export: "导出",
   },
   portTable: {
     header: {
@@ -81,6 +84,7 @@ const zh = {
     terminateService: "终止该服务",
     openDirTitle: "点击打开所在目录",
     openDirTitle2: "点击打开目录",
+    currentProcess: "当前进程",
   },
   confirmDialog: {
     danger: {

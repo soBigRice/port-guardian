@@ -1,6 +1,7 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { type Update } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
+import { marked } from "marked";
 import { formatUpdateError } from "../utils/updateErrors";
 import { useTranslation } from "../i18n";
 
@@ -72,6 +73,12 @@ export default function UpdateChecker({ show, updateInfo, onAutoCheck, onClose }
     return (bytes / (1024 * 1024)).toFixed(1) + " MB";
   }
 
+  const changelogHtml = useMemo(() => {
+    if (!updateInfo?.body) return "";
+    const raw = marked.parse(updateInfo.body, { async: false });
+    return typeof raw === "string" ? raw : "";
+  }, [updateInfo?.body]);
+
   if (!show || !updateInfo) return null;
 
   return (
@@ -83,10 +90,13 @@ export default function UpdateChecker({ show, updateInfo, onAutoCheck, onClose }
           v{updateInfo.version}
         </div>
 
-        {updateInfo.body && (
+        {changelogHtml && (
           <div className="update-changelog">
             <h4>{t("updateChecker.changelog")}</h4>
-            <p>{updateInfo.body}</p>
+            <div
+              className="changelog-content"
+              dangerouslySetInnerHTML={{ __html: changelogHtml }}
+            />
           </div>
         )}
 

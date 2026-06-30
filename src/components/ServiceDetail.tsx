@@ -112,15 +112,26 @@ export default function ServiceDetail({ service, onKill, onClose }: Props) {
         {service.parent_chain.length > 0 && (
           <div style={{ marginTop: 6 }}>
             <span className="detail-label">{t("serviceDetail.field.processChain")}</span>
-            <div className="parent-chain">
-              {service.parent_chain.map((node, i) => (
-                <span key={node.pid} style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                  {i > 0 && <span className="parent-arrow">&#8594;</span>}
-                  <span className="parent-node" title={node.command_line}>
-                    {node.name}
-                  </span>
-                </span>
-              ))}
+            <div className="process-tree">
+              {service.parent_chain.map((node, i) => {
+                const isLast = i === service.parent_chain.length - 1;
+                return (
+                  <div key={node.pid} className="tree-node" style={{ paddingLeft: i * 16 }}>
+                    <span className="tree-connector">{i === 0 ? "●" : isLast ? "└─" : "├─"}</span>
+                    <span className="tree-name" title={node.command_line}>
+                      {node.name}
+                    </span>
+                    <span className="tree-pid">({node.pid})</span>
+                  </div>
+                );
+              })}
+              {/* 当前进程 */}
+              <div className="tree-node current" style={{ paddingLeft: service.parent_chain.length * 16 }}>
+                <span className="tree-connector">└─</span>
+                <span className="tree-name">{service.process_name}</span>
+                <span className="tree-pid">({service.pid})</span>
+                <span className="tree-current-badge">← {t("serviceDetail.currentProcess")}</span>
+              </div>
             </div>
           </div>
         )}

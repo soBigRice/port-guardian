@@ -62,7 +62,9 @@ fn get_cached(pid: u32) -> Option<ProcessInfo> {
 /// 使用单次 PowerShell 调用，避免每个 PID 单独启动 PowerShell
 #[cfg(windows)]
 pub fn prefetch_all_processes() {
-    let ps_script = "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; \
+    let ps_script = "chcp 65001 > $null; \
+                     [Console]::OutputEncoding = [System.Text.Encoding]::UTF8; \
+                     $OutputEncoding = [System.Text.Encoding]::UTF8; \
                      Get-CimInstance -ClassName Win32_Process -ErrorAction SilentlyContinue | \
                      ForEach-Object { \
                        Write-Output ('PID:' + $_.ProcessId); \
@@ -287,7 +289,9 @@ fn get_ps_info(pid: u32) -> Result<(u32, String, String, String), String> {
     }
 
     let ps_script = format!(
-        "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; \
+        "chcp 65001 > $null; \
+         [Console]::OutputEncoding = [System.Text.Encoding]::UTF8; \
+         $OutputEncoding = [System.Text.Encoding]::UTF8; \
          $p = Get-CimInstance -ClassName Win32_Process -Filter 'ProcessId={}' -ErrorAction SilentlyContinue; \
          if ($p) {{ \
            Write-Output ('PPID:' + $p.ParentProcessId); \
@@ -337,7 +341,9 @@ fn get_ps_info(pid: u32) -> Result<(u32, String, String, String), String> {
 #[cfg(windows)]
 fn get_windows_process_user(pid: u32) -> String {
     let ps_script = format!(
-        "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; \
+        "chcp 65001 > $null; \
+         [Console]::OutputEncoding = [System.Text.Encoding]::UTF8; \
+         $OutputEncoding = [System.Text.Encoding]::UTF8; \
          $p = Get-CimInstance -ClassName Win32_Process -Filter 'ProcessId={}' -ErrorAction SilentlyContinue; \
          if ($p) {{ \
            try {{ \
@@ -384,7 +390,9 @@ fn get_executable_path(pid: u32) -> String {
     }
 
     let ps_script = format!(
-        "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; \
+        "chcp 65001 > $null; \
+         [Console]::OutputEncoding = [System.Text.Encoding]::UTF8; \
+         $OutputEncoding = [System.Text.Encoding]::UTF8; \
          $p = Get-CimInstance -ClassName Win32_Process -Filter 'ProcessId={}' -ErrorAction SilentlyContinue; \
          if ($p) {{ \
            $ep = [string]$p.ExecutablePath; \

@@ -499,7 +499,9 @@ fn get_process_brief(pid: u32) -> Result<(u32, String, String, String), String> 
 
     // 缓存未命中，单独调用 PowerShell
     let ps_script = format!(
-        "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; \
+        "chcp 65001 > $null; \
+         [Console]::OutputEncoding = [System.Text.Encoding]::UTF8; \
+         $OutputEncoding = [System.Text.Encoding]::UTF8; \
          $p = Get-CimInstance -ClassName Win32_Process -Filter 'ProcessId={}' -ErrorAction SilentlyContinue; \
          if ($p) {{ \
            Write-Output ('PPID:' + $p.ParentProcessId); \

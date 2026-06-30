@@ -97,6 +97,14 @@ function App() {
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<FilterKey>("all");
   const [killTarget, setKillTarget] = useState<PortService | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [batchKilling, setBatchKilling] = useState(false);
+  const [bookmarkedPorts, setBookmarkedPorts] = useState<Set<number>>(() => {
+    try {
+      const saved = localStorage.getItem("pg-bookmarks");
+      return saved ? new Set(JSON.parse(saved)) : new Set();
+    } catch { return new Set(); }
+  });
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
   const [showSettings, setShowSettings] = useState(false);
   const [theme, setTheme] = useState<Theme>(getInitialTheme);
@@ -112,6 +120,12 @@ function App() {
   const scanInFlightRef = useRef(false);
   const scanTotalRef = useRef(0);
   const flushTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+
+  // 持久化收藏端口
+  useEffect(() => {
+    localStorage.setItem("pg-bookmarks", JSON.stringify([...bookmarkedPorts]));
+  }, [bookmarkedPorts]);
 
   // 应用主题
   useEffect(() => {
@@ -157,6 +171,8 @@ function App() {
 
   // 是否为静默模式（由 refresh(silent) 控制）
   const silentScanRef = useRef(false);
+  // 本轮扫描是否需要流式 flush（仅首次加载为 true，后续为 false）
+  const streamFlushRef = useRef(true);
 
   const finishScanRef = useRef<(completed?: boolean) => void>(() => {});
   finishScanRef.current = (completed = true) => {
@@ -165,23 +181,32 @@ function App() {
       flushTimerRef.current = null;
     }
 
-    if (silentScanRef.current) {
-      // 静默模式：增量 diff — 新增的加入、消失的移除、不变的不动
-      const newResults = pendingServicesRef.current;
+    const newResults = pendingServicesRef.current;
+    const shouldStream = streamFlushRef.current;
+
+    if (shouldStream) {
+      // 首次加载：把剩余的 pending 一次性 flush
+      flushPendingRef.current();
+    } else {
+      // 后续刷新 / 静默轮询：增量 diff，无变化不重绘
       const newIds = new Set(newResults.map((s) => s.id));
+      const newIdStr = [...newIds].sort().join(",");
+
       setServices((prev) => {
-        const merged = prev.filter((s) => newIds.has(s.id)); // 移除消失的
+        const prevIds = new Set(prev.map((s) => s.id));
+        const prevIdStr = [...prevIds].sort().join(",");
+        if (prevIdStr === newIdStr) return prev;
+
+        const merged = prev.filter((s) => newIds.has(s.id));
         const existingIds = new Set(merged.map((s) => s.id));
         for (const s of newResults) {
-          if (!existingIds.has(s.id)) merged.push(s); // 加入新增的
+          if (!existingIds.has(s.id)) merged.push(s);
         }
         return merged;
       });
-      pendingServicesRef.current = [];
-    } else {
-      flushPendingRef.current();
     }
 
+    pendingServicesRef.current = [];
     scanInFlightRef.current = false;
     silentScanRef.current = false;
     setLoading(false);
@@ -195,7 +220,7 @@ function App() {
   const refresh = useCallback(async (silent = false) => {
     if (!(window as any).__TAURI_INTERNALS__) return;
     if (scanInFlightRef.current) {
-      if (!silent) flushPendingRef.current();
+      if (!silent && streamFlushRef.current) flushPendingRef.current();
       return;
     }
 
@@ -210,12 +235,18 @@ function App() {
     seenServiceIdsRef.current = new Set();
     scanTotalRef.current = 0;
     if (!silent) {
-      setServices([]);
+      const isStream = streamFlushRef.current;
+      if (isStream) {
+        setServices([]);
+      }
       setSelected(null);
       setKillTarget(null);
+      setSelectedIds(new Set());
       setLoading(true);
       setScanTotal(0);
       setScannedCount(0);
+      // 首次加载完成后，后续刷新走 diff 模式
+      if (isStream) streamFlushRef.current = false;
     }
     try {
       await invoke("scan_ports_stream");
@@ -241,16 +272,25 @@ function App() {
         scanTotalRef.current = event.payload;
         setScanTotal(event.payload);
         setScannedCount(0);
-        // 启动定时 flush（每 150ms 批量更新一次，避免逐条渲染卡顿）
-        if (flushTimerRef.current) clearInterval(flushTimerRef.current);
-        flushTimerRef.current = setInterval(() => flushPendingRef.current(), 150);
+        // 仅首次加载启动 flush 定时器（流式填充）
+        // 后续刷新全程缓存到 ref，扫描结束后一次性 diff 替换
+        if (streamFlushRef.current) {
+          if (flushTimerRef.current) clearInterval(flushTimerRef.current);
+          flushTimerRef.current = setInterval(() => flushPendingRef.current(), 150);
+        }
       }),
       listen<PortService>("port-found", (event) => {
         if (!scanInFlightRef.current) return;
         if (seenServiceIdsRef.current.has(event.payload.id)) return;
         seenServiceIdsRef.current.add(event.payload.id);
-        // 先缓存到 ref，不直接触发 setState
         pendingServicesRef.current.push(event.payload);
+        // 非流式模式（后续刷新），flush 定时器不跑，手动更新进度
+        if (!streamFlushRef.current) {
+          setScannedCount((prev) => {
+            const next = prev + 1;
+            return scanTotalRef.current > 0 ? Math.min(next, scanTotalRef.current) : next;
+          });
+        }
       }),
       listen("scan-complete", () => {
         if (!scanInFlightRef.current) return;
@@ -275,7 +315,7 @@ function App() {
     return () => window.clearTimeout(timer);
   }, [refresh]);
 
-  // 智能轮询：窗口可见时每 3 秒静默刷新，隐藏时暂停
+  // 智能轮询：窗口可见时每 10 秒静默刷新，隐藏时暂停
   useEffect(() => {
     let pollTimer: ReturnType<typeof setInterval> | null = null;
 
@@ -283,7 +323,7 @@ function App() {
       if (pollTimer) return;
       // 获得焦点时立即静默刷新一次
       refresh(true);
-      pollTimer = setInterval(() => refresh(true), 3000);
+      pollTimer = setInterval(() => refresh(true), 10000);
     };
 
     const stopPolling = () => {
@@ -320,22 +360,94 @@ function App() {
     };
   }, [refresh]);
 
-  // Escape 关闭详情面板
+  // 键盘快捷键
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement).tagName;
+      const isInput = tag === "INPUT" || tag === "TEXTAREA" || (e.target as HTMLElement).isContentEditable;
+
+      // Escape: 逐层关闭面板
       if (e.key === "Escape") {
         if (killTarget) setKillTarget(null);
         else if (showSettings) setShowSettings(false);
         else if (selected) setSelected(null);
+        else if (isInput) (e.target as HTMLElement).blur();
+        return;
+      }
+
+      // 以下快捷键仅在非输入状态生效
+      if (isInput) return;
+
+      // R / F5 → 刷新
+      if (e.key === "r" || e.key === "F5") {
+        e.preventDefault();
+        refresh();
+        return;
+      }
+
+      // / 或 Ctrl+K / Cmd+K → 聚焦搜索
+      if (e.key === "/" || ((e.ctrlKey || e.metaKey) && e.key === "k")) {
+        e.preventDefault();
+        searchInputRef.current?.focus();
+        return;
+      }
+
+      // ↑ / ↓ → 切换选中行
+      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+        e.preventDefault();
+        const visible = services.filter((s) => matchesSearch(s, search) && matchesFilter(s, filter));
+        if (visible.length === 0) return;
+
+        const idx = selected ? visible.findIndex((s) => s.id === selected.id) : -1;
+        let nextIdx: number;
+        if (e.key === "ArrowDown") {
+          nextIdx = idx < visible.length - 1 ? idx + 1 : 0;
+        } else {
+          nextIdx = idx > 0 ? idx - 1 : visible.length - 1;
+        }
+        setSelected(visible[nextIdx]);
+        return;
+      }
+
+      // K / Delete → 终止选中服务
+      if ((e.key === "k" || e.key === "Delete") && selected) {
+        e.preventDefault();
+        setKillTarget(selected);
+        return;
+      }
+
+      // 数字键 1-9 → 切换筛选器
+      if (e.key >= "1" && e.key <= "9") {
+        const idx = parseInt(e.key) - 1;
+        if (idx < FILTER_OPTIONS.length) {
+          setFilter(FILTER_OPTIONS[idx].key);
+        }
+        return;
       }
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [selected, killTarget, showSettings]);
+  }, [selected, killTarget, showSettings, search, filter, refresh]);
+
+  // 切换收藏
+  const toggleBookmark = (port: number) => {
+    setBookmarkedPorts((prev) => {
+      const next = new Set(prev);
+      if (next.has(port)) next.delete(port);
+      else next.add(port);
+      return next;
+    });
+  };
 
   const filtered = useMemo(() => {
-    return services.filter((service) => matchesSearch(service, search) && matchesFilter(service, filter));
-  }, [services, search, filter]);
+    const list = services.filter((service) => matchesSearch(service, search) && matchesFilter(service, filter));
+    // 收藏端口置顶
+    return [...list].sort((a, b) => {
+      const aBk = bookmarkedPorts.has(a.port) ? 0 : 1;
+      const bBk = bookmarkedPorts.has(b.port) ? 0 : 1;
+      return aBk - bBk;
+    });
+  }, [services, search, filter, bookmarkedPorts]);
 
   useEffect(() => {
     if (selected && !filtered.some((service) => service.id === selected.id)) {
@@ -344,12 +456,12 @@ function App() {
   }, [filtered, selected]);
 
   const handleSearchChange = (value: string) => {
-    flushPendingRef.current();
+    if (scanInFlightRef.current) flushPendingRef.current();
     setSearch(value);
   };
 
   const handleFilterChange = (nextFilter: FilterKey) => {
-    flushPendingRef.current();
+    if (scanInFlightRef.current) flushPendingRef.current();
     setFilter(nextFilter);
   };
 
@@ -395,6 +507,103 @@ function App() {
     } catch (err) {
       alert(`${t("app.terminateFailed")} ${err}`);
     }
+  };
+
+  // 多选切换
+  const toggleSelect = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  // 全选/取消全选（仅限当前可见列表中 can_terminate 的服务）
+  const toggleSelectAll = () => {
+    const terminable = filtered.filter((s) => s.can_terminate);
+    const allSelected = terminable.every((s) => selectedIds.has(s.id));
+    if (allSelected) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(terminable.map((s) => s.id)));
+    }
+  };
+
+  // 批量终止
+  const handleBatchKill = async () => {
+    const targets = services.filter((s) => selectedIds.has(s.id) && s.can_terminate);
+    if (targets.length === 0) return;
+
+    setBatchKilling(true);
+    let successCount = 0;
+
+    for (const svc of targets) {
+      try {
+        const result = await invoke<{
+          success: boolean;
+          message: string;
+          port_released: boolean;
+        }>("terminate_process", { pid: svc.pid, force: true });
+
+        if (result.success) {
+          successCount++;
+          setServices((prev) => prev.filter((s) => s.id !== svc.id));
+        }
+      } catch {
+        // 单个失败不影响其他
+      }
+    }
+
+    setSelectedIds(new Set());
+    setSelected(null);
+    setBatchKilling(false);
+
+    // 如果有失败的，刷新列表
+    if (successCount < targets.length) {
+      refresh();
+    }
+  };
+
+  // 导出端口列表
+  const handleExport = (format: "csv" | "json") => {
+    const data = services.map((s) => ({
+      port: s.port,
+      protocol: s.protocol,
+      process: s.process_name,
+      pid: s.pid,
+      service: s.service_name || s.service_type,
+      safety: s.safety_level,
+      source: s.source,
+      command: s.command_line,
+      directory: s.cwd,
+    }));
+
+    let content: string;
+    let mime: string;
+    let ext: string;
+
+    if (format === "csv") {
+      const headers = Object.keys(data[0] || {});
+      const rows = data.map((row) =>
+        headers.map((h) => `"${String((row as any)[h]).replace(/"/g, '""')}"`).join(",")
+      );
+      content = [headers.join(","), ...rows].join("\n");
+      mime = "text/csv";
+      ext = "csv";
+    } else {
+      content = JSON.stringify(data, null, 2);
+      mime = "application/json";
+      ext = "json";
+    }
+
+    const blob = new Blob([content], { type: `${mime};charset=utf-8` });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `port-guardian-${new Date().toISOString().slice(0, 10)}.${ext}`;
+    a.click();
+    URL.revokeObjectURL(url);
   };
 
   const safeCount = services.filter((s) => s.safety_level === "safe").length;
@@ -474,6 +683,15 @@ function App() {
           <button className="btn btn-refresh" onClick={() => refresh()} disabled={loading}>
             {loading ? t("common.scanning") : t("app.refresh")}
           </button>
+          {services.length > 0 && (
+            <div className="export-dropdown">
+              <button className="btn btn-export">{t("app.export")} ▾</button>
+              <div className="export-menu">
+                <button onClick={() => handleExport("csv")}>CSV</button>
+                <button onClick={() => handleExport("json")}>JSON</button>
+              </div>
+            </div>
+          )}
           <button
             className="btn btn-icon"
             onClick={() => setShowSettings(true)}
@@ -485,7 +703,7 @@ function App() {
       </header>
 
       <div className="toolbar">
-        <SearchBar value={search} onChange={handleSearchChange} />
+        <SearchBar ref={searchInputRef} value={search} onChange={handleSearchChange} />
         <div className="filters">
           {FILTER_OPTIONS.map((f) => (
             <button
@@ -497,6 +715,17 @@ function App() {
             </button>
           ))}
         </div>
+        {selectedIds.size > 0 && (
+          <button
+            className="btn btn-batch-kill"
+            onClick={handleBatchKill}
+            disabled={batchKilling}
+          >
+            {batchKilling
+              ? t("app.batchKilling")
+              : t("app.batchKill", { count: selectedIds.size })}
+          </button>
+        )}
       </div>
 
       <div className="main">
@@ -516,11 +745,16 @@ function App() {
             scanTotal={scanTotal}
             scannedCount={scannedCount}
             hasFilter={search !== "" || filter !== "all"}
+            selectedIds={selectedIds}
             onSelect={(s) => {
               rowClickedRef.current = true;
               setSelected(s);
             }}
             onKill={(s) => setKillTarget(s)}
+            onToggleSelect={toggleSelect}
+            onToggleSelectAll={toggleSelectAll}
+            bookmarkedPorts={bookmarkedPorts}
+            onToggleBookmark={toggleBookmark}
           />
         </div>
         {selected && (

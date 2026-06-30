@@ -1,6 +1,6 @@
 [package]
 name = "port-guardian"
-version = "0.1.13"
+version = "0.2.0"
 description = "Port Guardian - 开发端口服务识别与安全清理工具"
 authors = ["you"]
 edition = "2024"

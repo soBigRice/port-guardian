@@ -104,20 +104,42 @@ pub fn wait_for_process_exit(pid: u32, timeout_ms: u32) -> bool {
     !is_process_alive(pid)
 }
 
-/// 检查端口是否仍然被监听
+/// 检查端口是否仍然被监听（TCP）或绑定（UDP）
+/// 使用 netstat2 API，全平台统一实现
 #[cfg(unix)]
 pub fn is_port_listening(port: u16) -> bool {
-    let output = std::process::Command::new("lsof")
-        .args(["-nP", "-iTCP", &format!(":{}", port), "-sTCP:LISTEN"])
-        .output();
+    use netstat2::{
+        get_sockets_info, AddressFamilyFlags, ProtocolFlags, ProtocolSocketInfo, TcpState,
+    };
 
-    match output {
-        Ok(out) => {
-            let stdout = String::from_utf8_lossy(&out.stdout);
-            stdout.lines().count() > 1 // 第一行是表头
+    let af = AddressFamilyFlags::IPV4 | AddressFamilyFlags::IPV6;
+
+    // 检查 TCP LISTEN
+    if let Ok(sockets) = get_sockets_info(af, ProtocolFlags::TCP) {
+        let tcp_hit = sockets.iter().any(|si| {
+            if let ProtocolSocketInfo::Tcp(tcp) = &si.protocol_socket_info {
+                tcp.local_port == port && tcp.state == TcpState::Listen
+            } else {
+                false
+            }
+        });
+        if tcp_hit {
+            return true;
         }
-        Err(_) => false,
     }
+
+    // 检查 UDP 绑定
+    if let Ok(sockets) = get_sockets_info(af, ProtocolFlags::UDP) {
+        return sockets.iter().any(|si| {
+            if let ProtocolSocketInfo::Udp(udp) = &si.protocol_socket_info {
+                udp.local_port == port
+            } else {
+                false
+            }
+        });
+    }
+
+    false
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -241,26 +263,39 @@ pub fn wait_for_process_exit(pid: u32, timeout_ms: u32) -> bool {
     }
 }
 
-/// 检查端口是否仍然被监听（Windows：netstat2 API，毫秒级）
+/// 检查端口是否仍然被监听（TCP）或绑定（UDP）（Windows：netstat2 API，毫秒级）
 #[cfg(windows)]
 pub fn is_port_listening(port: u16) -> bool {
     use netstat2::{
         get_sockets_info, AddressFamilyFlags, ProtocolFlags, ProtocolSocketInfo, TcpState,
     };
 
-    let sockets = get_sockets_info(
-        AddressFamilyFlags::IPV4 | AddressFamilyFlags::IPV6,
-        ProtocolFlags::TCP,
-    );
+    let af = AddressFamilyFlags::IPV4 | AddressFamilyFlags::IPV6;
 
-    match sockets {
-        Ok(sockets) => sockets.iter().any(|si| {
+    // 检查 TCP LISTEN
+    if let Ok(sockets) = get_sockets_info(af, ProtocolFlags::TCP) {
+        let tcp_hit = sockets.iter().any(|si| {
             if let ProtocolSocketInfo::Tcp(tcp) = &si.protocol_socket_info {
                 tcp.local_port == port && tcp.state == TcpState::Listen
             } else {
                 false
             }
-        }),
-        Err(_) => false,
+        });
+        if tcp_hit {
+            return true;
+        }
     }
+
+    // 检查 UDP 绑定
+    if let Ok(sockets) = get_sockets_info(af, ProtocolFlags::UDP) {
+        return sockets.iter().any(|si| {
+            if let ProtocolSocketInfo::Udp(udp) = &si.protocol_socket_info {
+                udp.local_port == port
+            } else {
+                false
+            }
+        });
+    }
+
+    false
 }
