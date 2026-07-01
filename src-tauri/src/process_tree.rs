@@ -409,6 +409,10 @@ fn get_process_brief(pid: u32) -> Result<(u32, String, String, String), String> 
     use std::process::Command;
 
     let output = Command::new("ps")
+        // Finder 启动的 macOS 打包版可能没有继承终端的 UTF-8 locale；
+        // 这里显式指定，避免进程链中的中文命令行被 ps 转成 M-xx 转义形式。
+        .env("LC_ALL", "en_US.UTF-8")
+        .env("LANG", "en_US.UTF-8")
         .args(["-p", &pid.to_string(), "-o", "pid=,ppid=,user=,comm=,args="])
         .output()
         .map_err(|e| format!("ps failed: {}", e))?;

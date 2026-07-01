@@ -174,6 +174,10 @@ fn get_ps_info(pid: u32) -> Result<(u32, String, String, String), String> {
     use std::process::Command;
 
     let output = Command::new("ps")
+        // Finder 启动的 macOS 打包版可能没有继承终端的 UTF-8 locale；
+        // 这里显式指定，避免中文路径在 ps 的 args 输出中被转成 M-xx 转义形式。
+        .env("LC_ALL", "en_US.UTF-8")
+        .env("LANG", "en_US.UTF-8")
         .args(["-p", &pid.to_string(), "-o", "pid=,ppid=,user=,comm=,args="])
         .output()
         .map_err(|e| format!("Failed to run ps: {}", e))?;

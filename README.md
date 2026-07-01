@@ -362,6 +362,14 @@ npm run tauri build
 - 解决方案：将 `/Users/superrice/.tauri/port-guardian-key.pub` 整个文件 base64 编码成单行后写入 `plugins.updater.pubkey`，并在 Release workflow 中同时校验私钥 Secret 与配置公钥是否能解码为 UTF-8 key 文件文本。
 - 后续注意点：Tauri 2.11 updater key 配置要区分“裸 minisign key 行”和“Tauri CLI 需要的 base64 整文件内容”；私钥 Secret 和配置公钥都不要只复制第二行。
 
+#### 2026-07-01：macOS 打包版启动命令中文路径显示为 M-xx 乱码
+
+- 问题描述：本地开发模式能正常显示中文路径，但线上下载的 macOS 正式版在“启动命令”中把中文目录显示为 `M-hM^P...` 这类转义文本。
+- 出现原因：正式版 `.app` 从 Finder / LaunchServices 启动时不一定继承终端的 `LANG` / `LC_ALL`；后端调用 `ps -o args=` 时如果落到 `C` locale，macOS `ps` 会把 UTF-8 中文字节转成 `M-xx` 转义形式。
+- 影响范围：影响进程详情、列表搜索和进程链中来自 `ps` 的命令行显示；不影响端口扫描、可执行文件路径读取和终止进程逻辑。
+- 解决方案：Unix/macOS 调用 `ps` 的位置显式设置 `LC_ALL=en_US.UTF-8` 和 `LANG=en_US.UTF-8`，确保 `args` 输出按 UTF-8 解码。
+- 后续注意点：凡是正式版从系统命令读取包含中文的文本，先确认子进程 locale；不要只从前端字体、CSS 或 React 渲染方向排查乱码。
+
 ---
 
 ## 📦 依赖说明

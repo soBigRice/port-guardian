@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.2.7] - 2026-07-01
+
+### 🐛 Bug Fixes
+
+- 修复 macOS 打包版“启动命令”中文路径显示为 `M-xx` 乱码的问题；后端调用 `ps` 时显式设置 UTF-8 locale，避免 Finder 启动环境缺少 `LANG` / `LC_ALL`。
+
 ## [0.2.6] - 2026-07-01
 
 ### 🐛 Bug Fixes
