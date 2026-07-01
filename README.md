@@ -370,6 +370,14 @@ npm run tauri build
 - 解决方案：Unix/macOS 调用 `ps` 的位置显式设置 `LC_ALL=en_US.UTF-8` 和 `LANG=en_US.UTF-8`，确保 `args` 输出按 UTF-8 解码。
 - 后续注意点：凡是正式版从系统命令读取包含中文的文本，先确认子进程 locale；不要只从前端字体、CSS 或 React 渲染方向排查乱码。
 
+#### 2026-07-01：更新弹窗只显示版本日期不显示完整 changelog
+
+- 问题描述：应用检测到新版本后，更新内容区域只显示 `## [0.2.7] - 2026-07-01`，没有显示该版本的具体更新条目。
+- 出现原因：Release workflow 提取 `CHANGELOG.md` 当前版本段落时使用了 multiline 正则；`$` 在该模式下会匹配行尾，导致正则在版本标题行就提前结束。
+- 影响范围：影响 GitHub Release body 和 `latest.json.notes`，进而影响应用内 `updateInfo.body` 渲染；不影响更新包下载、签名校验和安装。
+- 解决方案：提取 changelog 时改用不依赖 multiline `$` 的段落正则，匹配到下一个版本标题或文件结尾为止；同时补齐当前 `v0.2.7` Release 和 `latest.json` 的 notes。
+- 后续注意点：每次改发版脚本后，除了看 Release 是否成功，还要检查 `latest.json.notes` 是否包含完整版本段落，避免更新弹窗只有标题。
+
 ---
 
 ## 📦 依赖说明

@@ -160,10 +160,12 @@ jobs:
             const fs = require("fs");
             const version = process.argv[1];
             const changelog = fs.readFileSync(process.argv[2], "utf8");
-            const pattern = new RegExp(`^## \\[${version}\\][\\s\\S]*?(?=^## \\[|$)`, "m");
+            // 不能使用 multiline 模式下的 `$` 作为全文结束，否则会在版本标题行尾提前截断。
+            const escapedVersion = version.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+            const pattern = new RegExp(`(^|\\n)(## \\[${escapedVersion}\\][\\s\\S]*?)(?=\\n## \\[|$)`);
             const match = changelog.match(pattern);
             if (match) {
-              console.log(match[0].trim());
+              console.log(match[2].trim());
             } else {
               console.log("See the assets below to download and install.");
             }
@@ -252,10 +254,12 @@ jobs:
               const fs = require("fs");
               const version = process.argv[1];
               const changelog = fs.readFileSync(process.argv[2], "utf8");
-              const pattern = new RegExp(`^## \\[${version}\\][\\s\\S]*?(?=^## \\[|$)`, "m");
+              // 不能使用 multiline 模式下的 `$` 作为全文结束，否则会在版本标题行尾提前截断。
+              const escapedVersion = version.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+              const pattern = new RegExp(`(^|\\n)(## \\[${escapedVersion}\\][\\s\\S]*?)(?=\\n## \\[|$)`);
               const match = changelog.match(pattern);
               if (match) {
-                console.log(match[0].trim());
+                console.log(match[2].trim());
               } else {
                 console.log("See the assets below to download and install.");
               }
