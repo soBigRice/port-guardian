@@ -346,6 +346,14 @@ npm run tauri build
 - 解决方案：发布脚本改为调用 `releases?per_page=100` 列表接口，再按 `tag_name` 找到对应 Draft/Release 后校验资产并 PATCH 公开。
 - 后续注意点：涉及 Draft Release 的自动化不要依赖 tag 详情接口，优先从 release list 中筛选。
 
+#### 2026-07-01：Updater 签名私钥 secret 格式错误导致 macOS 打包失败
+
+- 问题描述：`release (macos-latest, universal-apple-darwin)` 在生成 updater 产物时失败，日志显示 `failed to decode base64 key: Invalid symbol 32, offset 9`。
+- 出现原因：GitHub Actions Secret `TAURI_SIGNING_PRIVATE_KEY` 不是单行 base64 私钥；常见情况是把包含 `untrusted comment:` / `trusted comment:` 的整段 minisign 私钥文件内容粘贴进了 secret，offset 9 对应 `untrusted` 后面的空格。
+- 影响范围：macOS/Windows 发布任务都会在 updater 签名阶段失败，Release 无法稳定生成 `latest.json` 和签名更新包。
+- 解决方案：在 GitHub 仓库 `Settings -> Secrets and variables -> Actions` 中重新设置 `TAURI_SIGNING_PRIVATE_KEY`，只填写私钥文件里的 base64 私钥行，不要包含注释行、空格、Tab 或换行；workflow 已增加前置格式校验，避免等到打包末尾才失败。
+- 后续注意点：不要把公钥或完整私钥文件当作该 secret；如果重新生成 key，需要同步更新 `src-tauri/tauri.conf.json` 中的 `plugins.updater.pubkey`，并注意旧版本自动更新兼容性。
+
 ---
 
 ## 📦 依赖说明

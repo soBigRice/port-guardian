@@ -86,10 +86,35 @@ jobs:
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
         run: |
+          set -euo pipefail
+
           if [ -z "$TAURI_SIGNING_PRIVATE_KEY" ]; then
             echo "::error::Missing repository secret TAURI_SIGNING_PRIVATE_KEY. Tauri updater artifacts require a private key matching the pubkey in src-tauri/tauri.conf.json."
             exit 1
           fi
+
+          node <<'NODE'
+          const key = process.env.TAURI_SIGNING_PRIVATE_KEY ?? "";
+
+          const fail = (message) => {
+            console.error(`::error::${message}`);
+            process.exit(1);
+          };
+
+          // Tauri CLI 需要这里直接传入 base64 私钥行，不能传整段 minisign key 文件。
+          if (key.includes("untrusted comment:") || key.includes("trusted comment:")) {
+            fail("Invalid repository secret TAURI_SIGNING_PRIVATE_KEY. It looks like a full minisign key file was pasted. Use only the base64 private key line, not the untrusted/trusted comment lines.");
+          }
+
+          // base64 私钥必须是单行；空格、Tab、换行都会导致 Tauri 在 updater 签名阶段解码失败。
+          if (/\s/.test(key)) {
+            fail("Invalid repository secret TAURI_SIGNING_PRIVATE_KEY. It must be a single base64 line with no spaces, tabs, or line breaks.");
+          }
+
+          if (!/^[A-Za-z0-9+/=]+$/.test(key)) {
+            fail("Invalid repository secret TAURI_SIGNING_PRIVATE_KEY. It contains characters outside the standard base64 alphabet.");
+          }
+          NODE
 
       - name: Extract changelog for this version
         id: changelog

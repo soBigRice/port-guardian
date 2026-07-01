@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.2.5] - 2026-07-01
+
+### 🐛 Bug Fixes
+
+- 修复 Release workflow 对 updater 签名私钥格式校验不足的问题；提前拦截整段 minisign 私钥文件、空格、换行或非 base64 字符，避免 macOS/Windows 打包到 updater 签名阶段才失败。
+
 ## [0.2.4] - 2026-06-30
 
 ### 🐛 Bug Fixes
