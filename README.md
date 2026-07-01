@@ -354,6 +354,14 @@ npm run tauri build
 - 解决方案：在 GitHub 仓库 `Settings -> Secrets and variables -> Actions` 中重新设置 `TAURI_SIGNING_PRIVATE_KEY`，只填写私钥文件里的 base64 私钥行，不要包含注释行、空格、Tab 或换行；workflow 已增加前置格式校验，避免等到打包末尾才失败。
 - 后续注意点：不要把公钥或完整私钥文件当作该 secret；如果重新生成 key，需要同步更新 `src-tauri/tauri.conf.json` 中的 `plugins.updater.pubkey`，并注意旧版本自动更新兼容性。
 
+#### 2026-07-01：Updater 公钥使用裸 minisign key 行导致打包失败
+
+- 问题描述：`TAURI_SIGNING_PRIVATE_KEY` 修正后，macOS Release 仍在 updater 产物签名阶段失败，日志显示 `failed to decode pubkey: failed to convert base64 to utf8`。
+- 出现原因：Tauri 2.11 期望 `src-tauri/tauri.conf.json` 的 `plugins.updater.pubkey` 是 `.pub` 公钥文件整体内容的 base64 字符串；之前误填了 `.pub` 文件第二行裸 minisign 公钥，base64 解码后是二进制 key bytes，不是 UTF-8 key 文件文本。
+- 影响范围：macOS/Windows Release 都会在生成安装包后、上传 Release 资产前失败，导致 `latest.json` 和平台安装包无法发布。
+- 解决方案：将 `/Users/superrice/.tauri/port-guardian-key.pub` 整个文件 base64 编码成单行后写入 `plugins.updater.pubkey`，并在 Release workflow 中同时校验私钥 Secret 与配置公钥是否能解码为 UTF-8 key 文件文本。
+- 后续注意点：Tauri 2.11 updater key 配置要区分“裸 minisign key 行”和“Tauri CLI 需要的 base64 整文件内容”；私钥 Secret 和配置公钥都不要只复制第二行。
+
 ---
 
 ## 📦 依赖说明

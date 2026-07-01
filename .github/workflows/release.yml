@@ -94,25 +94,54 @@ jobs:
           fi
 
           node <<'NODE'
+          const fs = require("fs");
+
           const key = process.env.TAURI_SIGNING_PRIVATE_KEY ?? "";
+          const tauriConfig = JSON.parse(fs.readFileSync("src-tauri/tauri.conf.json", "utf8"));
+          const pubkey = tauriConfig?.plugins?.updater?.pubkey ?? "";
 
           const fail = (message) => {
             console.error(`::error::${message}`);
             process.exit(1);
           };
 
-          // Tauri CLI 需要这里直接传入 base64 私钥行，不能传整段 minisign key 文件。
-          if (key.includes("untrusted comment:") || key.includes("trusted comment:")) {
-            fail("Invalid repository secret TAURI_SIGNING_PRIVATE_KEY. It looks like a full minisign key file was pasted. Use only the base64 private key line, not the untrusted/trusted comment lines.");
+          const decodeBase64Utf8 = (value, label) => {
+            if (!value) {
+              fail(`Missing ${label}.`);
+            }
+
+            // Tauri CLI 需要 base64 编码后的 minisign/rsign key 文件内容，不能传原始多行文件或裸 key 行。
+            if (value.includes("untrusted comment:") || value.includes("trusted comment:")) {
+              fail(`Invalid ${label}. Encode the whole key file as one base64 line instead of pasting the raw comment/key lines.`);
+            }
+
+            // key 必须是单行；空格、Tab、换行都会导致 Tauri 在 updater 签名阶段解码失败。
+            if (/\s/.test(value)) {
+              fail(`Invalid ${label}. It must be a single base64 line with no spaces, tabs, or line breaks.`);
+            }
+
+            if (!/^[A-Za-z0-9+/=]+$/.test(value)) {
+              fail(`Invalid ${label}. It contains characters outside the standard base64 alphabet.`);
+            }
+
+            const decoded = Buffer.from(value, "base64");
+            const text = decoded.toString("utf8");
+
+            if (Buffer.from(text, "utf8").compare(decoded) !== 0) {
+              fail(`Invalid ${label}. It must decode to UTF-8 key file text, not raw minisign binary key bytes.`);
+            }
+
+            return text;
+          };
+
+          const privateKeyText = decodeBase64Utf8(key, "repository secret TAURI_SIGNING_PRIVATE_KEY");
+          if (!/secret key/i.test(privateKeyText)) {
+            fail("Invalid repository secret TAURI_SIGNING_PRIVATE_KEY. It must decode to a private secret key file, not the public .pub key.");
           }
 
-          // base64 私钥必须是单行；空格、Tab、换行都会导致 Tauri 在 updater 签名阶段解码失败。
-          if (/\s/.test(key)) {
-            fail("Invalid repository secret TAURI_SIGNING_PRIVATE_KEY. It must be a single base64 line with no spaces, tabs, or line breaks.");
-          }
-
-          if (!/^[A-Za-z0-9+/=]+$/.test(key)) {
-            fail("Invalid repository secret TAURI_SIGNING_PRIVATE_KEY. It contains characters outside the standard base64 alphabet.");
+          const publicKeyText = decodeBase64Utf8(pubkey, "src-tauri/tauri.conf.json plugins.updater.pubkey");
+          if (!/public key/i.test(publicKeyText)) {
+            fail("Invalid src-tauri/tauri.conf.json plugins.updater.pubkey. It must decode to the public .pub key file text.");
           }
           NODE
 

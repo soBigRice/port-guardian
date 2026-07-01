@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.2.6] - 2026-07-01
+
+### 🐛 Bug Fixes
+
+- 修复 Tauri 2.11 updater `pubkey` 格式错误问题；`plugins.updater.pubkey` 改为 `.pub` 文件整体内容的 base64 字符串，并增强 Release workflow 对私钥和公钥格式的前置校验。
+
 ## [0.2.5] - 2026-07-01
 
 ### 🐛 Bug Fixes
