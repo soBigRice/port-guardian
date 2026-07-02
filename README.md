@@ -132,20 +132,27 @@ port-guardian/
 
 ### 数据流
 
-```
-  ┌──────────────┐     IPC invoke      ┌─────────────────┐
-  │  React 前端   │ ──────────────────→ │  Tauri 后端      │
-  │              │                     │                 │
-  │  App.tsx     │ ←────────────────── │  commands.rs    │
-  │  状态管理     │    JSON Response    │  scan_ports()   │
-  │  UI 渲染      │                     │  terminate()    │
-  └──────────────┘                     └─────────────────┘
-                                              │
-                                              ▼
-                                    ┌─────────────────┐
-                                    │  系统命令层       │
-                                    │  lsof / ps / kill│
-                                    └─────────────────┘
+```mermaid
+flowchart TD
+  User["用户打开应用 / 手动刷新 / 静默轮询"] --> App["React App.tsx"]
+  App -->|"invoke scan_ports_stream"| Commands["Tauri commands.rs"]
+  Commands --> Scanner["port_scanner.rs<br/>netstat2 扫描 TCP/UDP"]
+  Scanner --> Resolver["process_resolver.rs<br/>解析 PID、命令、目录"]
+  Resolver --> Classifier["service_classifier + safety_checker<br/>分类与风险判断"]
+  Classifier --> Events["scan-start / port-found / scan-complete"]
+  Events --> Pending["pendingServicesRef<br/>缓存本轮扫描结果"]
+  Events --> Complete["scan-complete 正常收尾"]
+  App --> Watchdog["30 秒 watchdog<br/>兜底事件丢失或扫描卡住"]
+  Complete --> Finish["finishScanRef"]
+  Watchdog --> Finish
+  Pending --> Dedupe["按 protocol-port-pid id 去重"]
+  Finish -->|"首屏流式 flush"| Dedupe
+  Finish -->|"后续刷新完成后 diff"| Dedupe
+  Dedupe --> Services["services state"]
+  Services --> Polling["首扫完成后开启 10 秒静默轮询"]
+  Polling --> App
+  Services --> Table["PortTable 渲染端口列表"]
+  Table -->|"终止进程"| Terminator["terminate_process / kill"]
 ```
 
 ---
@@ -377,6 +384,30 @@ npm run tauri build
 - 影响范围：影响 GitHub Release body 和 `latest.json.notes`，进而影响应用内 `updateInfo.body` 渲染；不影响更新包下载、签名校验和安装。
 - 解决方案：提取 changelog 时改用不依赖 multiline `$` 的段落正则，匹配到下一个版本标题或文件结尾为止；同时补齐当前 `v0.2.7` Release 和 `latest.json` 的 notes。
 - 后续注意点：每次改发版脚本后，除了看 Release 是否成功，还要检查 `latest.json.notes` 是否包含完整版本段落，避免更新弹窗只有标题。
+
+#### 2026-07-02：端口列表偶发同一 PID/端口重复显示
+
+- 问题描述：列表中偶发出现同一个 `端口 + PID + 协议` 的多行重复记录，表现为同一个服务被展示多次。
+- 出现原因：前端只在 `port-found` 事件进入 `pendingServicesRef` 时做了单轮去重，但 `flushPendingRef` 写入 `services` 和刷新完成后的 diff 合并没有清理已有重复；在刷新、静默轮询、搜索/筛选切换时机重叠时，半截 pending 结果可能被追加进旧列表，并在下一轮只按 id 集合比较时被误判为“无变化”而保留下来。
+- 影响范围：影响端口表格展示、顶部统计数量、批量选择体验；不影响后端真实端口扫描结果和终止进程命令。
+- 解决方案：新增统一的 `dedupeServicesById` / `appendUniqueServices` / `mergeScannedServices`，所有写入 `services` 的扫描路径都按 `protocol-port-pid` 生成的 `id` 去重；同时新增 `activeStreamFlushRef` 区分当前扫描是否真的允许流式 flush，避免非流式刷新期间把半截结果插入列表。
+- 后续注意点：后续如果新增端口列表写入路径，必须复用统一去重/merge 逻辑；不要只比较 id 集合，还要处理 state 内已有重复 id 的清理。
+
+#### 2026-07-02：扫描完成事件和首屏轮询存在竞态
+
+- 问题描述：首屏扫描偶发不流式展示、结果不完整或扫描状态异常结束。
+- 出现原因：`invoke("scan_ports_stream")` 返回后前端立即 fallback 调用 `finishScanRef`，但 Tauri 事件派发可能还没处理完；同时启动自动扫描和可见窗口静默轮询都会立即触发 `refresh`，静默轮询可能先抢到扫描锁。
+- 影响范围：影响首屏 loading、扫描进度、端口列表完整性和静默刷新时机；不影响后端扫描出的真实端口数据。
+- 解决方案：扫描只由 `scan-complete` 正常收尾，新增 30 秒 watchdog 兜底事件丢失或卡住；新增首扫完成标记，首扫结束后才开启 10 秒静默轮询。
+- 后续注意点：扫描链路不要在 `invoke` resolve 后直接结束 UI 状态；如果新增轮询或焦点刷新入口，必须确认不会抢占首屏手动扫描。
+
+#### 2026-07-02：tsx 启动命令里的中文路径显示为百分号编码
+
+- 问题描述：详情面板“启动命令”中出现 `file:///.../%E5%B0%8F...` 这类 URL 百分号编码，进程名也可能显示成 `/Users/superrice` 或 `/Users/.../node` 这类路径片段。
+- 出现原因：`tsx` 等 Node 工具会把 `file://` 模块路径编码到命令行；后端直接展示 `ps args` 原文。macOS `ps -o comm=` 对部分进程会返回完整可执行路径或截断后的路径片段，前端又直接把该字段当进程名展示。
+- 影响范围：影响列表进程名、详情面板启动命令、进程链展示和搜索体验；不影响终止进程使用的 PID。
+- 解决方案：后端解析进程信息时，优先用真实可执行文件路径推导进程名，其次用命令行首个可执行项，最后才使用 `comm` 字段；同时把命令行中的合法 `%HH` 序列按 UTF-8 解码，进程树解析同步复用相同清洗规则。
+- 后续注意点：命令行展示问题优先查 `process_resolver.rs` / `process_tree.rs` 的系统输出解析，不要只改前端样式；新增展示字段时要区分真实 PID/路径数据和用户可读展示文本。
 
 ---
 

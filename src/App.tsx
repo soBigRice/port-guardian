@@ -14,6 +14,7 @@ import { formatUpdateError } from "./utils/updateErrors";
 import { useTranslation } from "./i18n";
 
 const FALLBACK_VERSION = "0.1.0";
+const SCAN_WATCHDOG_MS = 30000;
 
 type FilterKey =
   | "all"
@@ -75,6 +76,54 @@ function applyTheme(theme: Theme) {
   }
 }
 
+// 按服务 id 保留首个结果，避免同一轮扫描或 React 状态合并时出现重复行。
+function dedupeServicesById(services: PortService[]) {
+  const seen = new Set<string>();
+  const unique: PortService[] = [];
+
+  for (const service of services) {
+    if (seen.has(service.id)) continue;
+    seen.add(service.id);
+    unique.push(service);
+  }
+
+  return unique;
+}
+
+// 流式扫描期间追加 pending 结果；这里再次按 id 去重，防止异步刷新时机把旧结果重复塞回列表。
+function appendUniqueServices(prev: PortService[], incoming: PortService[]) {
+  const merged = dedupeServicesById([...prev, ...incoming]);
+  return merged.length === prev.length ? prev : merged;
+}
+
+// 非流式刷新完成后按最新扫描结果做 diff，同时清理历史 state 中已经存在的重复 id。
+function mergeScannedServices(prev: PortService[], scanned: PortService[]) {
+  const uniqueScanned = dedupeServicesById(scanned);
+  const scannedIds = new Set(uniqueScanned.map((service) => service.id));
+  const scannedIdStr = [...scannedIds].sort().join(",");
+  const prevIds = new Set(prev.map((service) => service.id));
+  const prevIdStr = [...prevIds].sort().join(",");
+
+  if (prev.length === prevIds.size && prevIdStr === scannedIdStr) return prev;
+
+  const merged: PortService[] = [];
+  const keptIds = new Set<string>();
+
+  for (const service of prev) {
+    if (!scannedIds.has(service.id) || keptIds.has(service.id)) continue;
+    keptIds.add(service.id);
+    merged.push(service);
+  }
+
+  for (const service of uniqueScanned) {
+    if (keptIds.has(service.id)) continue;
+    keptIds.add(service.id);
+    merged.push(service);
+  }
+
+  return merged;
+}
+
 function App() {
   const { t } = useTranslation();
 
@@ -114,12 +163,15 @@ function App() {
   const [showUpdate, setShowUpdate] = useState(false);
   const [scanTotal, setScanTotal] = useState(0);
   const [scannedCount, setScannedCount] = useState(0);
+  const [initialScanSettled, setInitialScanSettled] = useState(false);
   const rowClickedRef = useRef(false);
   const pendingServicesRef = useRef<PortService[]>([]);
   const seenServiceIdsRef = useRef<Set<string>>(new Set());
   const scanInFlightRef = useRef(false);
   const scanTotalRef = useRef(0);
   const flushTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const scanWatchdogTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const initialScanSettledRef = useRef(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
 
   // 持久化收藏端口
@@ -158,10 +210,10 @@ function App() {
   // 用 ref 包一层，避免 useCallback 依赖导致 useEffect 重新订阅
   const flushPendingRef = useRef<() => void>(() => {});
   flushPendingRef.current = () => {
-    const pending = pendingServicesRef.current;
+    const pending = dedupeServicesById(pendingServicesRef.current);
     if (pending.length > 0) {
       pendingServicesRef.current = [];
-      setServices((prev) => [...prev, ...pending]);
+      setServices((prev) => appendUniqueServices(prev, pending));
       setScannedCount((prev) => {
         const next = prev + pending.length;
         return scanTotalRef.current > 0 ? Math.min(next, scanTotalRef.current) : next;
@@ -173,6 +225,8 @@ function App() {
   const silentScanRef = useRef(false);
   // 本轮扫描是否需要流式 flush（仅首次加载为 true，后续为 false）
   const streamFlushRef = useRef(true);
+  // 当前扫描是否真的在流式写入列表；避免启动后切换模式影响本轮扫描判断。
+  const activeStreamFlushRef = useRef(false);
 
   const finishScanRef = useRef<(completed?: boolean) => void>(() => {});
   finishScanRef.current = (completed = true) => {
@@ -180,38 +234,33 @@ function App() {
       clearInterval(flushTimerRef.current);
       flushTimerRef.current = null;
     }
+    if (scanWatchdogTimerRef.current) {
+      clearTimeout(scanWatchdogTimerRef.current);
+      scanWatchdogTimerRef.current = null;
+    }
 
-    const newResults = pendingServicesRef.current;
-    const shouldStream = streamFlushRef.current;
+    const newResults = dedupeServicesById(pendingServicesRef.current);
+    const shouldStream = activeStreamFlushRef.current;
 
     if (shouldStream) {
       // 首次加载：把剩余的 pending 一次性 flush
       flushPendingRef.current();
     } else {
       // 后续刷新 / 静默轮询：增量 diff，无变化不重绘
-      const newIds = new Set(newResults.map((s) => s.id));
-      const newIdStr = [...newIds].sort().join(",");
-
-      setServices((prev) => {
-        const prevIds = new Set(prev.map((s) => s.id));
-        const prevIdStr = [...prevIds].sort().join(",");
-        if (prevIdStr === newIdStr) return prev;
-
-        const merged = prev.filter((s) => newIds.has(s.id));
-        const existingIds = new Set(merged.map((s) => s.id));
-        for (const s of newResults) {
-          if (!existingIds.has(s.id)) merged.push(s);
-        }
-        return merged;
-      });
+      setServices((prev) => mergeScannedServices(prev, newResults));
     }
 
     pendingServicesRef.current = [];
     scanInFlightRef.current = false;
     silentScanRef.current = false;
+    activeStreamFlushRef.current = false;
     setLoading(false);
     if (completed) {
       setLastRefresh(new Date());
+    }
+    if (!initialScanSettledRef.current) {
+      initialScanSettledRef.current = true;
+      setInitialScanSettled(true);
     }
   };
 
@@ -220,22 +269,27 @@ function App() {
   const refresh = useCallback(async (silent = false) => {
     if (!(window as any).__TAURI_INTERNALS__) return;
     if (scanInFlightRef.current) {
-      if (!silent && streamFlushRef.current) flushPendingRef.current();
+      if (!silent && activeStreamFlushRef.current) flushPendingRef.current();
       return;
     }
 
     scanInFlightRef.current = true;
     silentScanRef.current = silent;
+    const isStream = !silent && streamFlushRef.current;
+    activeStreamFlushRef.current = isStream;
     // 清理上一轮扫描的 flush 定时器
     if (flushTimerRef.current) {
       clearInterval(flushTimerRef.current);
       flushTimerRef.current = null;
     }
+    if (scanWatchdogTimerRef.current) {
+      clearTimeout(scanWatchdogTimerRef.current);
+      scanWatchdogTimerRef.current = null;
+    }
     pendingServicesRef.current = [];
     seenServiceIdsRef.current = new Set();
     scanTotalRef.current = 0;
     if (!silent) {
-      const isStream = streamFlushRef.current;
       if (isStream) {
         setServices([]);
       }
@@ -248,17 +302,20 @@ function App() {
       // 首次加载完成后，后续刷新走 diff 模式
       if (isStream) streamFlushRef.current = false;
     }
+
+    // scan-complete 是正常收尾路径；watchdog 只兜底事件丢失或后端异常卡住的情况。
+    scanWatchdogTimerRef.current = setTimeout(() => {
+      if (scanInFlightRef.current) {
+        finishScanRef.current(false);
+      }
+    }, SCAN_WATCHDOG_MS);
+
     try {
       await invoke("scan_ports_stream");
     } catch (err) {
       console.error("扫描启动失败:", err);
-      finishScanRef.current(false);
+      if (scanInFlightRef.current) finishScanRef.current(false);
       return;
-    }
-
-    // 如果 complete 事件丢失，也不要让界面停在扫描中。
-    if (scanInFlightRef.current) {
-      finishScanRef.current();
     }
   }, []);
 
@@ -274,7 +331,7 @@ function App() {
         setScannedCount(0);
         // 仅首次加载启动 flush 定时器（流式填充）
         // 后续刷新全程缓存到 ref，扫描结束后一次性 diff 替换
-        if (streamFlushRef.current) {
+        if (activeStreamFlushRef.current) {
           if (flushTimerRef.current) clearInterval(flushTimerRef.current);
           flushTimerRef.current = setInterval(() => flushPendingRef.current(), 150);
         }
@@ -285,7 +342,7 @@ function App() {
         seenServiceIdsRef.current.add(event.payload.id);
         pendingServicesRef.current.push(event.payload);
         // 非流式模式（后续刷新），flush 定时器不跑，手动更新进度
-        if (!streamFlushRef.current) {
+        if (!activeStreamFlushRef.current) {
           setScannedCount((prev) => {
             const next = prev + 1;
             return scanTotalRef.current > 0 ? Math.min(next, scanTotalRef.current) : next;
@@ -304,6 +361,10 @@ function App() {
         clearInterval(flushTimerRef.current);
         flushTimerRef.current = null;
       }
+      if (scanWatchdogTimerRef.current) {
+        clearTimeout(scanWatchdogTimerRef.current);
+        scanWatchdogTimerRef.current = null;
+      }
     };
   }, []);
 
@@ -317,12 +378,14 @@ function App() {
 
   // 智能轮询：窗口可见时每 10 秒静默刷新，隐藏时暂停
   useEffect(() => {
+    if (!initialScanSettled) return;
+
     let pollTimer: ReturnType<typeof setInterval> | null = null;
 
-    const startPolling = () => {
+    const startPolling = (refreshImmediately = false) => {
       if (pollTimer) return;
-      // 获得焦点时立即静默刷新一次
-      refresh(true);
+      // 首次扫描完成后才开启轮询；重新获得焦点时再立即静默刷新一次。
+      if (refreshImmediately) refresh(true);
       pollTimer = setInterval(() => refresh(true), 10000);
     };
 
@@ -335,30 +398,31 @@ function App() {
 
     const handleVisibility = () => {
       if (document.visibilityState === "visible") {
-        startPolling();
+        startPolling(true);
       } else {
         stopPolling();
       }
     };
+    const handleFocus = () => startPolling(true);
 
     // 页面可见性变化
     document.addEventListener("visibilitychange", handleVisibility);
     // 窗口焦点变化（兼容）
-    window.addEventListener("focus", startPolling);
+    window.addEventListener("focus", handleFocus);
     window.addEventListener("blur", stopPolling);
 
     // 初始状态：如果可见就开始轮询
     if (document.visibilityState === "visible") {
-      startPolling();
+      startPolling(false);
     }
 
     return () => {
       stopPolling();
       document.removeEventListener("visibilitychange", handleVisibility);
-      window.removeEventListener("focus", startPolling);
+      window.removeEventListener("focus", handleFocus);
       window.removeEventListener("blur", stopPolling);
     };
-  }, [refresh]);
+  }, [refresh, initialScanSettled]);
 
   // 键盘快捷键
   useEffect(() => {
@@ -456,12 +520,12 @@ function App() {
   }, [filtered, selected]);
 
   const handleSearchChange = (value: string) => {
-    if (scanInFlightRef.current) flushPendingRef.current();
+    if (scanInFlightRef.current && activeStreamFlushRef.current) flushPendingRef.current();
     setSearch(value);
   };
 
   const handleFilterChange = (nextFilter: FilterKey) => {
-    if (scanInFlightRef.current) flushPendingRef.current();
+    if (scanInFlightRef.current && activeStreamFlushRef.current) flushPendingRef.current();
     setFilter(nextFilter);
   };
 

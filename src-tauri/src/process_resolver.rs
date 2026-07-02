@@ -11,6 +11,80 @@ pub struct ProcessInfo {
     pub executable_path: String,
 }
 
+/// 将 ps / PowerShell 可能返回的可执行路径收敛为进程名。
+/// macOS 的 comm 字段可能被截成 /Users/superrice 这类无效片段，所以优先用真实可执行路径，其次用命令行首个可执行项。
+pub(crate) fn normalize_process_name(
+    raw_name: &str,
+    command_line: &str,
+    executable_path: &str,
+) -> String {
+    let executable_path = executable_path.trim();
+    if !executable_path.is_empty() {
+        return file_name_or_original(executable_path);
+    }
+
+    let trimmed = raw_name.trim();
+    if trimmed.is_empty() {
+        return String::new();
+    }
+
+    if trimmed.starts_with('/') {
+        if let Some(first_arg) = command_line.split_whitespace().next() {
+            let first_arg_name = file_name_or_original(first_arg);
+            if !first_arg_name.is_empty() {
+                return first_arg_name;
+            }
+        }
+    }
+
+    file_name_or_original(trimmed)
+}
+
+fn file_name_or_original(value: &str) -> String {
+    std::path::Path::new(value)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or(value)
+        .to_string()
+}
+
+/// 解码命令行中的百分号编码路径，例如 file:///.../%E5%B0%8F...，让中文目录按可读文本展示和搜索。
+pub(crate) fn decode_percent_encoded_utf8(input: &str) -> String {
+    let bytes = input.as_bytes();
+    if !bytes.contains(&b'%') {
+        return input.to_string();
+    }
+
+    let mut decoded = Vec::with_capacity(bytes.len());
+    let mut index = 0;
+
+    while index < bytes.len() {
+        if bytes[index] == b'%' && index + 2 < bytes.len() {
+            if let (Some(high), Some(low)) =
+                (hex_value(bytes[index + 1]), hex_value(bytes[index + 2]))
+            {
+                decoded.push((high << 4) | low);
+                index += 3;
+                continue;
+            }
+        }
+
+        decoded.push(bytes[index]);
+        index += 1;
+    }
+
+    String::from_utf8(decoded).unwrap_or_else(|_| input.to_string())
+}
+
+fn hex_value(byte: u8) -> Option<u8> {
+    match byte {
+        b'0'..=b'9' => Some(byte - b'0'),
+        b'a'..=b'f' => Some(byte - b'a' + 10),
+        b'A'..=b'F' => Some(byte - b'A' + 10),
+        _ => None,
+    }
+}
+
 /// 根据 PID 获取进程详细信息
 pub fn resolve_process(pid: u32) -> Result<ProcessInfo, String> {
     // Windows: 先检查缓存
@@ -24,6 +98,7 @@ pub fn resolve_process(pid: u32) -> Result<ProcessInfo, String> {
     let (ppid, user, name, command_line) = get_ps_info(pid)?;
     let cwd = get_cwd(pid);
     let executable_path = get_executable_path(pid);
+    let name = normalize_process_name(&name, &command_line, &executable_path);
 
     Ok(ProcessInfo {
         pid,
@@ -202,20 +277,16 @@ fn get_ps_info(pid: u32) -> Result<(u32, String, String, String), String> {
 
     let (user, rest) = next_field(rest);
 
-    let (name, rest) = next_field(rest);
+    let (raw_name, rest) = next_field(rest);
     let command_line = rest.trim();
     let command_line = if command_line.is_empty() {
-        name.to_string()
+        raw_name.trim().to_string()
     } else {
-        command_line.to_string()
+        decode_percent_encoded_utf8(command_line)
     };
+    let name = normalize_process_name(raw_name, &command_line, "");
 
-    Ok((
-        ppid,
-        user.trim().to_string(),
-        name.trim().to_string(),
-        command_line,
-    ))
+    Ok((ppid, user.trim().to_string(), name, command_line))
 }
 
 /// 从 ps 输出中提取一个字段（跳过前导空格，取到下一个空白）
@@ -313,7 +384,10 @@ fn get_cwd_macos(pid: u32) -> String {
     let info = unsafe { info.assume_init() };
     let path_bytes = &info.pvi_cdir.vip_path;
     // 找到 null 终止符
-    let len = path_bytes.iter().position(|&b| b == 0).unwrap_or(path_bytes.len());
+    let len = path_bytes
+        .iter()
+        .position(|&b| b == 0)
+        .unwrap_or(path_bytes.len());
     String::from_utf8_lossy(&path_bytes[..len]).to_string()
 }
 
@@ -337,9 +411,7 @@ fn get_executable_path(pid: u32) -> String {
             fn proc_pidpath(pid: libc::c_int, buf: *mut libc::c_void, bufsize: u32) -> libc::c_int;
         }
         let mut buf = [0u8; 1024];
-        let ret = unsafe {
-            proc_pidpath(pid as i32, buf.as_mut_ptr() as *mut libc::c_void, 1024)
-        };
+        let ret = unsafe { proc_pidpath(pid as i32, buf.as_mut_ptr() as *mut libc::c_void, 1024) };
         if ret <= 0 {
             return String::new();
         }
@@ -352,6 +424,62 @@ fn get_executable_path(pid: u32) -> String {
         return std::fs::read_link(format!("/proc/{}/exe", pid))
             .map(|p| p.to_string_lossy().to_string())
             .unwrap_or_default();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{decode_percent_encoded_utf8, normalize_process_name};
+
+    #[test]
+    fn decodes_utf8_percent_encoded_command_paths() {
+        let raw = "node --import file:///Users/superrice/CodePublic/%E5%B0%8F%E9%BB%91%E7%B1%B3/node_modules/tsx/dist/loader.mjs";
+        let decoded = decode_percent_encoded_utf8(raw);
+
+        assert!(decoded.contains("/小黑米/node_modules/tsx/dist/loader.mjs"));
+    }
+
+    #[test]
+    fn keeps_invalid_percent_sequences_unchanged() {
+        let raw = "node --flag 100% --name %ZZ";
+
+        assert_eq!(decode_percent_encoded_utf8(raw), raw);
+    }
+
+    #[test]
+    fn normalizes_full_executable_path_to_file_name() {
+        assert_eq!(
+            normalize_process_name(
+                "/Users/superrice/.nvm/versions/node/v23.10.0/bin/node",
+                "",
+                ""
+            ),
+            "node"
+        );
+    }
+
+    #[test]
+    fn normalizes_truncated_comm_from_command_line() {
+        assert_eq!(
+            normalize_process_name(
+                "/Users/superrice",
+                "/Users/superrice/.nvm/versions/node/v23.10.0/bin/node --require preflight.cjs",
+                ""
+            ),
+            "node"
+        );
+    }
+
+    #[test]
+    fn prefers_executable_path_when_available() {
+        assert_eq!(
+            normalize_process_name(
+                "/Users/superrice",
+                "/Users/superrice/.nvm/versions/node/v23.10.0/bin/node --require preflight.cjs",
+                "/Users/superrice/.nvm/versions/node/v23.10.0/bin/node"
+            ),
+            "node"
+        );
     }
 }
 
@@ -482,11 +610,7 @@ fn get_cwd(pid: u32) -> String {
 
     unsafe {
         // 打开进程：需要查询信息 + 读内存权限
-        let handle = match OpenProcess(
-            PROCESS_QUERY_INFORMATION | PROCESS_VM_READ,
-            false,
-            pid,
-        ) {
+        let handle = match OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, false, pid) {
             Ok(h) => h,
             Err(_) => return String::new(),
         };

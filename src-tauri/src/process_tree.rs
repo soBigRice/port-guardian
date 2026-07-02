@@ -453,23 +453,19 @@ fn parse_ps_line(line: &str) -> Result<(u32, String, String, String), String> {
     let (user, rest) = extract_field(remaining);
     remaining = rest;
 
-    // 提取 COMM（进程名，不含空格）
-    let (name, rest) = extract_field(remaining);
+    // 提取 COMM；macOS 的 comm 可能是完整可执行路径或截断片段，需要结合命令行归一化后再展示。
+    let (raw_name, rest) = extract_field(remaining);
 
-    // 剩余部分是 ARGS
-    let command_line = rest.trim().to_string();
+    // 剩余部分是 ARGS；tsx 等工具会把 file:// 中文路径百分号编码，展示前需要解回 UTF-8。
+    let command_line = rest.trim();
     let command_line = if command_line.is_empty() {
-        name.to_string()
+        raw_name.trim().to_string()
     } else {
-        command_line
+        crate::process_resolver::decode_percent_encoded_utf8(command_line)
     };
+    let name = crate::process_resolver::normalize_process_name(raw_name, &command_line, "");
 
-    Ok((
-        ppid,
-        user.trim().to_string(),
-        name.trim().to_string(),
-        command_line,
-    ))
+    Ok((ppid, user.trim().to_string(), name, command_line))
 }
 
 /// 从 ps 输出中提取一个字段（跳过前导空格，取到下一个空格）
