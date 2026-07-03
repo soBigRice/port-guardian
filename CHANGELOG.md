@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.2.10] - 2026-07-03
+
+### 🚀 Performance
+
+- 优化 Windows 扫描链路：父进程链只读取缓存中的轻量字段，避免递归触发 owner/cwd 补齐。
+- Windows owner 查询改为原生 Token API，减少 PowerShell / WMI 调用导致的扫描卡顿。
+- 首屏之后的手动刷新和静默刷新改为批量 `scan-results`，降低端口多时的 IPC 和前端事件处理开销。
+
+### 🐛 Bug Fixes
+
+- 修复 Windows 上扫描可能停在少量端口、后续不继续展示的问题。
+- 修复进程解析失败时端口被直接隐藏的问题；现在会显示为 `Unresolved`，并禁止终止。
+- 修复 Windows 批量进程缓存命中后 `user` / `cwd` 为空，导致目录展示和安全判断不准确的问题。
+- 修复同一端口/PID 在刷新后字段变化但前端仍保留旧详情的问题。
+
+### 🔧 Other
+
+- 补充 Windows 扫描卡顿、缓存字段和刷新 diff 的问题记录。
+- 同步更新 README Mermaid 数据流，记录 `Unresolved` 安全分支。
+
 ## [0.2.9] - 2026-07-02
 
 ### 🐛 Bug Fixes

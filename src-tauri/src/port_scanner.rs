@@ -14,12 +14,15 @@ pub struct PortInfo {
 /// - Windows: 通过 GetExtendedTcpTable / GetExtendedUdpTable API
 /// - Linux: 通过 /proc/net/tcp 和 /proc/net/udp
 pub fn scan_listening_ports() -> Result<Vec<PortInfo>, String> {
+    use std::collections::HashSet;
+
     use netstat2::{
-        get_sockets_info, AddressFamilyFlags, ProtocolFlags, ProtocolSocketInfo, TcpState,
+        AddressFamilyFlags, ProtocolFlags, ProtocolSocketInfo, TcpState, get_sockets_info,
     };
 
     let af_flags = AddressFamilyFlags::IPV4 | AddressFamilyFlags::IPV6;
     let mut ports = Vec::new();
+    let mut seen = HashSet::new();
 
     // ── TCP: 只要 LISTEN 状态 ──
     let tcp_sockets = get_sockets_info(af_flags, ProtocolFlags::TCP)
@@ -35,7 +38,8 @@ pub fn scan_listening_ports() -> Result<Vec<PortInfo>, String> {
             let addr = tcp_si.local_addr.to_string();
 
             for &pid in &si.associated_pids {
-                if ports.iter().any(|p: &PortInfo| p.pid == pid && p.protocol == "TCP" && p.port == port) {
+                // 同一 PID/协议/端口可能同时有 IPv4/IPv6 记录；用 HashSet 去重，避免端口多时反复线性扫描。
+                if !seen.insert((pid, "TCP", port)) {
                     continue;
                 }
                 ports.push(PortInfo {
@@ -59,7 +63,8 @@ pub fn scan_listening_ports() -> Result<Vec<PortInfo>, String> {
             let addr = udp_si.local_addr.to_string();
 
             for &pid in &si.associated_pids {
-                if ports.iter().any(|p: &PortInfo| p.pid == pid && p.protocol == "UDP" && p.port == port) {
+                // UDP 同样可能出现多地址记录；保持原去重语义，只把复杂度从 O(n²) 降到 O(n)。
+                if !seen.insert((pid, "UDP", port)) {
                     continue;
                 }
                 ports.push(PortInfo {

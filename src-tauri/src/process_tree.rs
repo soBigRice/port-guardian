@@ -276,7 +276,7 @@ pub fn identify_source(chain: &[ProcessNode]) -> String {
         if name_lower == "rapportd" || name_lower == "sharingd" || name_lower == "nsurlsessiond" {
             return "System".into();
         }
-        if name_lower == "coreaudiod" || name_lower == "coreaudiod" {
+        if name_lower == "coreaudiod" {
             return "System Audio".into();
         }
         if name_lower == "bluetoothd" || name_lower == "wifiagent" {
@@ -492,9 +492,10 @@ fn get_process_brief(pid: u32) -> Result<(u32, String, String, String), String> 
     use crate::process_resolver;
     use crate::windows_command::hidden_command;
 
-    // 先通过缓存获取
-    if let Ok(info) = process_resolver::resolve_process(pid) {
-        return Ok((info.ppid, info.user, info.name, info.command_line));
+    // 父进程链只需要轻量字段；命中缓存时不要调用 resolve_process，
+    // 否则会补齐 owner/cwd，端口多时 Windows 扫描会被权限查询拖慢。
+    if let Some(brief) = process_resolver::get_cached_process_brief(pid) {
+        return Ok(brief);
     }
 
     // 缓存未命中，单独调用 PowerShell

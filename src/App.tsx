@@ -96,32 +96,77 @@ function appendUniqueServices(prev: PortService[], incoming: PortService[]) {
   return merged.length === prev.length ? prev : merged;
 }
 
+function isSameParentChain(a: PortService["parent_chain"], b: PortService["parent_chain"]) {
+  if (a.length !== b.length) return false;
+  return a.every((node, index) => {
+    const other = b[index];
+    return (
+      node.pid === other.pid &&
+      node.name === other.name &&
+      node.command_line === other.command_line
+    );
+  });
+}
+
+function isSameServiceData(a: PortService, b: PortService) {
+  return (
+    a.id === b.id &&
+    a.port === b.port &&
+    a.protocol === b.protocol &&
+    a.local_address === b.local_address &&
+    a.state === b.state &&
+    a.pid === b.pid &&
+    a.process_name === b.process_name &&
+    a.executable_path === b.executable_path &&
+    a.command_line === b.command_line &&
+    a.cwd === b.cwd &&
+    a.user === b.user &&
+    a.source === b.source &&
+    a.service_type === b.service_type &&
+    a.service_name === b.service_name &&
+    a.safety_level === b.safety_level &&
+    a.safety_reason === b.safety_reason &&
+    a.can_terminate === b.can_terminate &&
+    isSameParentChain(a.parent_chain, b.parent_chain)
+  );
+}
+
 // 非流式刷新完成后按最新扫描结果做 diff，同时清理历史 state 中已经存在的重复 id。
 function mergeScannedServices(prev: PortService[], scanned: PortService[]) {
   const uniqueScanned = dedupeServicesById(scanned);
-  const scannedIds = new Set(uniqueScanned.map((service) => service.id));
-  const scannedIdStr = [...scannedIds].sort().join(",");
-  const prevIds = new Set(prev.map((service) => service.id));
-  const prevIdStr = [...prevIds].sort().join(",");
-
-  if (prev.length === prevIds.size && prevIdStr === scannedIdStr) return prev;
+  const scannedById = new Map(uniqueScanned.map((service) => [service.id, service]));
 
   const merged: PortService[] = [];
   const keptIds = new Set<string>();
+  let changed = prev.length !== uniqueScanned.length;
 
   for (const service of prev) {
-    if (!scannedIds.has(service.id) || keptIds.has(service.id)) continue;
+    const nextService = scannedById.get(service.id);
+    if (!nextService) {
+      changed = true;
+      continue;
+    }
+    if (keptIds.has(service.id)) {
+      changed = true;
+      continue;
+    }
     keptIds.add(service.id);
-    merged.push(service);
+    if (isSameServiceData(service, nextService)) {
+      merged.push(service);
+    } else {
+      changed = true;
+      merged.push(nextService);
+    }
   }
 
   for (const service of uniqueScanned) {
     if (keptIds.has(service.id)) continue;
     keptIds.add(service.id);
+    changed = true;
     merged.push(service);
   }
 
-  return merged;
+  return changed ? merged : prev;
 }
 
 function App() {
@@ -311,7 +356,7 @@ function App() {
     }, SCAN_WATCHDOG_MS);
 
     try {
-      await invoke("scan_ports_stream");
+      await invoke("scan_ports_stream", { streamResults: isStream });
     } catch (err) {
       console.error("扫描启动失败:", err);
       if (scanInFlightRef.current) finishScanRef.current(false);
@@ -327,8 +372,11 @@ function App() {
       listen<number>("scan-start", (event) => {
         if (!scanInFlightRef.current) return;
         scanTotalRef.current = event.payload;
-        setScanTotal(event.payload);
-        setScannedCount(0);
+        // 静默轮询不展示进度，避免 scan-start 单独触发一次无意义重渲染。
+        if (!silentScanRef.current) {
+          setScanTotal(event.payload);
+          setScannedCount(0);
+        }
         // 仅首次加载启动 flush 定时器（流式填充）
         // 后续刷新全程缓存到 ref，扫描结束后一次性 diff 替换
         if (activeStreamFlushRef.current) {
@@ -341,12 +389,24 @@ function App() {
         if (seenServiceIdsRef.current.has(event.payload.id)) return;
         seenServiceIdsRef.current.add(event.payload.id);
         pendingServicesRef.current.push(event.payload);
-        // 非流式模式（后续刷新），flush 定时器不跑，手动更新进度
-        if (!activeStreamFlushRef.current) {
+        // 静默轮询没有可见进度条，避免每个端口事件触发一次 React 重渲染；手动刷新仍保留进度反馈。
+        if (!activeStreamFlushRef.current && !silentScanRef.current) {
           setScannedCount((prev) => {
             const next = prev + 1;
             return scanTotalRef.current > 0 ? Math.min(next, scanTotalRef.current) : next;
           });
+        }
+      }),
+      listen<PortService[]>("scan-results", (event) => {
+        if (!scanInFlightRef.current) return;
+        // 非流式刷新由后端批量返回完整结果，前端只在 scan-complete 后做一次 diff。
+        pendingServicesRef.current = dedupeServicesById(event.payload);
+        if (!silentScanRef.current) {
+          setScannedCount(
+            scanTotalRef.current > 0
+              ? Math.min(event.payload.length, scanTotalRef.current)
+              : event.payload.length
+          );
         }
       }),
       listen("scan-complete", () => {
@@ -356,7 +416,7 @@ function App() {
     ]);
 
     return () => {
-      unlistenPromise.then(([u1, u2, u3]) => { u1(); u2(); u3(); });
+      unlistenPromise.then(([u1, u2, u3, u4]) => { u1(); u2(); u3(); u4(); });
       if (flushTimerRef.current) {
         clearInterval(flushTimerRef.current);
         flushTimerRef.current = null;
@@ -514,8 +574,14 @@ function App() {
   }, [services, search, filter, bookmarkedPorts]);
 
   useEffect(() => {
-    if (selected && !filtered.some((service) => service.id === selected.id)) {
+    if (!selected) return;
+    const nextSelected = filtered.find((service) => service.id === selected.id);
+    if (!nextSelected) {
       setSelected(null);
+      return;
+    }
+    if (nextSelected !== selected) {
+      setSelected(nextSelected);
     }
   }, [filtered, selected]);
 
@@ -670,11 +736,23 @@ function App() {
     URL.revokeObjectURL(url);
   };
 
-  const safeCount = services.filter((s) => s.safety_level === "safe").length;
-  const cautionCount = services.filter(
-    (s) => s.safety_level === "caution" || s.safety_level === "unknown"
-  ).length;
-  const dangerCount = services.filter((s) => s.safety_level === "danger").length;
+  const { safeCount, cautionCount, dangerCount } = useMemo(() => {
+    let safeCount = 0;
+    let cautionCount = 0;
+    let dangerCount = 0;
+
+    for (const service of services) {
+      if (service.safety_level === "safe") {
+        safeCount++;
+      } else if (service.safety_level === "danger") {
+        dangerCount++;
+      } else if (service.safety_level === "caution" || service.safety_level === "unknown") {
+        cautionCount++;
+      }
+    }
+
+    return { safeCount, cautionCount, dangerCount };
+  }, [services]);
 
   const isTauri = !!(window as any).__TAURI_INTERNALS__;
 

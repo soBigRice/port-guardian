@@ -28,12 +28,12 @@ pub(crate) fn normalize_process_name(
         return String::new();
     }
 
-    if trimmed.starts_with('/') {
-        if let Some(first_arg) = command_line.split_whitespace().next() {
-            let first_arg_name = file_name_or_original(first_arg);
-            if !first_arg_name.is_empty() {
-                return first_arg_name;
-            }
+    if trimmed.starts_with('/')
+        && let Some(first_arg) = command_line.split_whitespace().next()
+    {
+        let first_arg_name = file_name_or_original(first_arg);
+        if !first_arg_name.is_empty() {
+            return first_arg_name;
         }
     }
 
@@ -49,6 +49,7 @@ fn file_name_or_original(value: &str) -> String {
 }
 
 /// 解码命令行中的百分号编码路径，例如 file:///.../%E5%B0%8F...，让中文目录按可读文本展示和搜索。
+#[cfg_attr(all(windows, not(test)), allow(dead_code))]
 pub(crate) fn decode_percent_encoded_utf8(input: &str) -> String {
     let bytes = input.as_bytes();
     if !bytes.contains(&b'%') {
@@ -59,14 +60,14 @@ pub(crate) fn decode_percent_encoded_utf8(input: &str) -> String {
     let mut index = 0;
 
     while index < bytes.len() {
-        if bytes[index] == b'%' && index + 2 < bytes.len() {
-            if let (Some(high), Some(low)) =
+        if bytes[index] == b'%'
+            && index + 2 < bytes.len()
+            && let (Some(high), Some(low)) =
                 (hex_value(bytes[index + 1]), hex_value(bytes[index + 2]))
-            {
-                decoded.push((high << 4) | low);
-                index += 3;
-                continue;
-            }
+        {
+            decoded.push((high << 4) | low);
+            index += 3;
+            continue;
         }
 
         decoded.push(bytes[index]);
@@ -76,6 +77,7 @@ pub(crate) fn decode_percent_encoded_utf8(input: &str) -> String {
     String::from_utf8(decoded).unwrap_or_else(|_| input.to_string())
 }
 
+#[cfg_attr(all(windows, not(test)), allow(dead_code))]
 fn hex_value(byte: u8) -> Option<u8> {
     match byte {
         b'0'..=b'9' => Some(byte - b'0'),
@@ -91,7 +93,7 @@ pub fn resolve_process(pid: u32) -> Result<ProcessInfo, String> {
     #[cfg(windows)]
     {
         if let Some(info) = get_cached(pid) {
-            return Ok(info);
+            return Ok(hydrate_cached_process_info(pid, info));
         }
     }
 
@@ -121,9 +123,15 @@ use crate::windows_command::hidden_command;
 use std::collections::HashMap;
 #[cfg(windows)]
 use std::sync::Mutex;
+#[cfg(windows)]
+use std::time::{Duration, Instant};
 
 #[cfg(windows)]
 static PROCESS_CACHE: Mutex<Option<HashMap<u32, ProcessInfo>>> = Mutex::new(None);
+#[cfg(windows)]
+static PROCESS_CACHE_UPDATED: Mutex<Option<Instant>> = Mutex::new(None);
+#[cfg(windows)]
+const PROCESS_CACHE_TTL: Duration = Duration::from_secs(30);
 
 /// 从缓存中获取进程信息
 #[cfg(windows)]
@@ -133,10 +141,76 @@ fn get_cached(pid: u32) -> Option<ProcessInfo> {
     map.get(&pid).cloned()
 }
 
+/// Windows 父进程链只需要 ppid/name/command_line；这里故意不补齐 owner/cwd，
+/// 避免扫描每一层父进程时触发较重的权限和目录读取。
+#[cfg(windows)]
+pub(crate) fn get_cached_process_brief(pid: u32) -> Option<(u32, String, String, String)> {
+    let info = get_cached(pid)?;
+    let name = normalize_process_name(&info.name, &info.command_line, &info.executable_path);
+    Some((info.ppid, info.user, name, info.command_line))
+}
+
+#[cfg(windows)]
+fn update_cached(pid: u32, info: ProcessInfo) {
+    if let Ok(mut cache) = PROCESS_CACHE.lock()
+        && let Some(map) = cache.as_mut()
+    {
+        map.insert(pid, info);
+    }
+}
+
+/// Windows 批量缓存为了速度不主动读取 owner/cwd；命中缓存时按需补齐这些安全相关字段。
+/// owner 读取失败时写入 unknown，让安全判断走“非当前用户/不可直接终止”的保守分支。
+#[cfg(windows)]
+fn hydrate_cached_process_info(pid: u32, mut info: ProcessInfo) -> ProcessInfo {
+    let original = info.clone();
+
+    if info.user.is_empty() {
+        let user = get_windows_process_user(pid);
+        info.user = if user.is_empty() {
+            "unknown".to_string()
+        } else {
+            user
+        };
+    }
+
+    if info.cwd.is_empty() {
+        info.cwd = get_cwd(pid);
+    }
+
+    let normalized_name =
+        normalize_process_name(&info.name, &info.command_line, &info.executable_path);
+    if info.name != normalized_name {
+        info.name = normalized_name;
+    }
+
+    if info.user != original.user || info.cwd != original.cwd || info.name != original.name {
+        update_cached(pid, info.clone());
+    }
+
+    info
+}
+
 /// 一次性批量获取所有进程信息（Windows 专用，启动时调用一次）
 /// 使用单次 PowerShell 调用，避免每个 PID 单独启动 PowerShell
 #[cfg(windows)]
 pub fn prefetch_all_processes() {
+    // 静默轮询会频繁调用扫描；30 秒内复用全量进程快照，避免持续唤起 WMI/PowerShell。
+    // 如果出现新 PID，resolve_process 仍会走单 PID 查询兜底，不会等到 TTL 过期才显示。
+    let cache_is_fresh = PROCESS_CACHE_UPDATED
+        .lock()
+        .ok()
+        .and_then(|updated| *updated)
+        .is_some_and(|updated| updated.elapsed() < PROCESS_CACHE_TTL);
+    let cache_has_data = PROCESS_CACHE
+        .lock()
+        .ok()
+        .and_then(|cache| cache.as_ref().map(|map| !map.is_empty()))
+        .unwrap_or(false);
+    if cache_is_fresh && cache_has_data {
+        return;
+    }
+
     let ps_script = "chcp 65001 > $null; \
                      [Console]::OutputEncoding = [System.Text.Encoding]::UTF8; \
                      $OutputEncoding = [System.Text.Encoding]::UTF8; \
@@ -227,20 +301,37 @@ pub fn prefetch_all_processes() {
         );
     }
 
-    // 写入缓存
+    // 写入缓存。刷新全量进程快照时，如果同一 PID 的命令和可执行路径没变，
+    // 只保留上一轮已补齐的 owner，避免每 30 秒重复调用 PowerShell。
+    // cwd 通过原生 API 读取成本较低，刷新后重新读取，避免长期保留旧工作目录。
     if let Ok(mut cache) = PROCESS_CACHE.lock() {
+        if let Some(old_map) = cache.as_ref() {
+            for (pid, info) in &mut map {
+                if let Some(old) = old_map.get(pid) {
+                    let same_process = old.name == info.name
+                        && old.command_line == info.command_line
+                        && old.executable_path == info.executable_path;
+                    if same_process && info.user.is_empty() && !old.user.is_empty() {
+                        info.user = old.user.clone();
+                    }
+                }
+            }
+        }
         *cache = Some(map);
+    }
+    if let Ok(mut updated) = PROCESS_CACHE_UPDATED.lock() {
+        *updated = Some(Instant::now());
     }
 }
 
 /// Unix: 无操作的预取占位
 #[cfg(unix)]
 pub fn prefetch_all_processes() {
-    // Unix 不需要预取，ps/lsof 单次调用很快
+    // Unix 不需要预取；ps 和系统 /proc API 单次调用成本较低。
 }
 
 // ═══════════════════════════════════════════════════════════════
-// Unix (macOS / Linux) 实现 — 使用 ps 和 lsof
+// Unix (macOS / Linux) 实现 — 使用 ps、proc_pidinfo/proc_pidpath 和 /proc
 // ═══════════════════════════════════════════════════════════════
 
 /// 通过 ps 获取进程基础信息
@@ -427,62 +518,6 @@ fn get_executable_path(pid: u32) -> String {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::{decode_percent_encoded_utf8, normalize_process_name};
-
-    #[test]
-    fn decodes_utf8_percent_encoded_command_paths() {
-        let raw = "node --import file:///Users/superrice/CodePublic/%E5%B0%8F%E9%BB%91%E7%B1%B3/node_modules/tsx/dist/loader.mjs";
-        let decoded = decode_percent_encoded_utf8(raw);
-
-        assert!(decoded.contains("/小黑米/node_modules/tsx/dist/loader.mjs"));
-    }
-
-    #[test]
-    fn keeps_invalid_percent_sequences_unchanged() {
-        let raw = "node --flag 100% --name %ZZ";
-
-        assert_eq!(decode_percent_encoded_utf8(raw), raw);
-    }
-
-    #[test]
-    fn normalizes_full_executable_path_to_file_name() {
-        assert_eq!(
-            normalize_process_name(
-                "/Users/superrice/.nvm/versions/node/v23.10.0/bin/node",
-                "",
-                ""
-            ),
-            "node"
-        );
-    }
-
-    #[test]
-    fn normalizes_truncated_comm_from_command_line() {
-        assert_eq!(
-            normalize_process_name(
-                "/Users/superrice",
-                "/Users/superrice/.nvm/versions/node/v23.10.0/bin/node --require preflight.cjs",
-                ""
-            ),
-            "node"
-        );
-    }
-
-    #[test]
-    fn prefers_executable_path_when_available() {
-        assert_eq!(
-            normalize_process_name(
-                "/Users/superrice",
-                "/Users/superrice/.nvm/versions/node/v23.10.0/bin/node --require preflight.cjs",
-                "/Users/superrice/.nvm/versions/node/v23.10.0/bin/node"
-            ),
-            "node"
-        );
-    }
-}
-
 // ═══════════════════════════════════════════════════════════════
 // Windows 实现 — 使用 PowerShell Get-CimInstance
 // ═══════════════════════════════════════════════════════════════
@@ -548,32 +583,116 @@ fn get_ps_info(pid: u32) -> Result<(u32, String, String, String), String> {
 /// 获取 Windows 进程的用户名
 #[cfg(windows)]
 fn get_windows_process_user(pid: u32) -> String {
-    let ps_script = format!(
-        "chcp 65001 > $null; \
-         [Console]::OutputEncoding = [System.Text.Encoding]::UTF8; \
-         $OutputEncoding = [System.Text.Encoding]::UTF8; \
-         $p = Get-CimInstance -ClassName Win32_Process -Filter 'ProcessId={}' -ErrorAction SilentlyContinue; \
-         if ($p) {{ \
-           try {{ \
-             $owner = Invoke-CimMethod -InputObject $p -MethodName GetOwner -ErrorAction SilentlyContinue; \
-             if ($owner.Domain) {{ Write-Output ($owner.Domain + '\\' + $owner.User) }} \
-             else {{ Write-Output $owner.User }} \
-           }} catch {{ Write-Output '' }} \
-         }}",
-        pid
-    );
+    use windows::Win32::Foundation::{CloseHandle, HANDLE};
+    use windows::Win32::Security::TOKEN_QUERY;
+    use windows::Win32::System::Threading::{
+        OpenProcess, OpenProcessToken, PROCESS_QUERY_LIMITED_INFORMATION,
+    };
 
-    let output = hidden_command("powershell")
-        .args(["-NoProfile", "-NonInteractive", "-Command", &ps_script])
-        .output();
+    unsafe {
+        let process_handle = match OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid) {
+            Ok(handle) => handle,
+            Err(_) => return String::new(),
+        };
 
-    match output {
-        Ok(out) => {
-            let stdout = String::from_utf8_lossy(&out.stdout);
-            stdout.lines().next().unwrap_or("").trim().to_string()
+        let mut token_handle = HANDLE::default();
+        if OpenProcessToken(process_handle, TOKEN_QUERY, &mut token_handle).is_err() {
+            let _ = CloseHandle(process_handle);
+            return String::new();
         }
-        Err(_) => String::new(),
+
+        // 原生 token 查询比 PowerShell GetOwner 快得多，也不会因为 WMI 卡住扫描链路。
+        let result = get_token_user_name(token_handle);
+        let _ = CloseHandle(token_handle);
+        let _ = CloseHandle(process_handle);
+        result
     }
+}
+
+#[cfg(windows)]
+unsafe fn get_token_user_name(token_handle: windows::Win32::Foundation::HANDLE) -> String {
+    use windows::Win32::Security::{
+        GetTokenInformation, LookupAccountSidW, SID_NAME_USE, TOKEN_USER, TokenUser,
+    };
+    use windows::core::{PCWSTR, PWSTR};
+
+    let mut needed = 0u32;
+    let _ = unsafe { GetTokenInformation(token_handle, TokenUser, None, 0, &mut needed) };
+    if needed == 0 {
+        return String::new();
+    }
+
+    let mut token_buf = vec![0u8; needed as usize];
+    if unsafe {
+        GetTokenInformation(
+            token_handle,
+            TokenUser,
+            Some(token_buf.as_mut_ptr() as *mut core::ffi::c_void),
+            needed,
+            &mut needed,
+        )
+    }
+    .is_err()
+    {
+        return String::new();
+    }
+
+    let token_user = unsafe { &*(token_buf.as_ptr() as *const TOKEN_USER) };
+    let sid = token_user.User.Sid;
+
+    let mut name_len = 0u32;
+    let mut domain_len = 0u32;
+    let mut sid_use = SID_NAME_USE::default();
+    let _ = unsafe {
+        LookupAccountSidW(
+            PCWSTR::null(),
+            sid,
+            PWSTR::null(),
+            &mut name_len,
+            PWSTR::null(),
+            &mut domain_len,
+            &mut sid_use,
+        )
+    };
+    if name_len == 0 {
+        return String::new();
+    }
+
+    let mut name_buf = vec![0u16; name_len as usize];
+    let mut domain_buf = vec![0u16; domain_len.max(1) as usize];
+    if unsafe {
+        LookupAccountSidW(
+            PCWSTR::null(),
+            sid,
+            PWSTR(name_buf.as_mut_ptr()),
+            &mut name_len,
+            PWSTR(domain_buf.as_mut_ptr()),
+            &mut domain_len,
+            &mut sid_use,
+        )
+    }
+    .is_err()
+    {
+        return String::new();
+    }
+
+    let name = utf16_buffer_to_string(&name_buf, name_len);
+    let domain = utf16_buffer_to_string(&domain_buf, domain_len);
+    if name.is_empty() {
+        String::new()
+    } else if domain.is_empty() {
+        name
+    } else {
+        format!("{}\\{}", domain, name)
+    }
+}
+
+#[cfg(windows)]
+fn utf16_buffer_to_string(buf: &[u16], len: u32) -> String {
+    let end = (len as usize).min(buf.len());
+    let slice = &buf[..end];
+    let end = slice.iter().position(|&ch| ch == 0).unwrap_or(slice.len());
+    String::from_utf16_lossy(&slice[..end])
 }
 
 /// 获取进程工作目录（Windows：通过 NT API 读取进程 PEB，支持中文路径）
@@ -728,5 +847,61 @@ fn get_executable_path(pid: u32) -> String {
             stdout.lines().next().unwrap_or("").trim().to_string()
         }
         Err(_) => String::new(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{decode_percent_encoded_utf8, normalize_process_name};
+
+    #[test]
+    fn decodes_utf8_percent_encoded_command_paths() {
+        let raw = "node --import file:///Users/superrice/CodePublic/%E5%B0%8F%E9%BB%91%E7%B1%B3/node_modules/tsx/dist/loader.mjs";
+        let decoded = decode_percent_encoded_utf8(raw);
+
+        assert!(decoded.contains("/小黑米/node_modules/tsx/dist/loader.mjs"));
+    }
+
+    #[test]
+    fn keeps_invalid_percent_sequences_unchanged() {
+        let raw = "node --flag 100% --name %ZZ";
+
+        assert_eq!(decode_percent_encoded_utf8(raw), raw);
+    }
+
+    #[test]
+    fn normalizes_full_executable_path_to_file_name() {
+        assert_eq!(
+            normalize_process_name(
+                "/Users/superrice/.nvm/versions/node/v23.10.0/bin/node",
+                "",
+                ""
+            ),
+            "node"
+        );
+    }
+
+    #[test]
+    fn normalizes_truncated_comm_from_command_line() {
+        assert_eq!(
+            normalize_process_name(
+                "/Users/superrice",
+                "/Users/superrice/.nvm/versions/node/v23.10.0/bin/node --require preflight.cjs",
+                ""
+            ),
+            "node"
+        );
+    }
+
+    #[test]
+    fn prefers_executable_path_when_available() {
+        assert_eq!(
+            normalize_process_name(
+                "/Users/superrice",
+                "/Users/superrice/.nvm/versions/node/v23.10.0/bin/node --require preflight.cjs",
+                "/Users/superrice/.nvm/versions/node/v23.10.0/bin/node"
+            ),
+            "node"
+        );
     }
 }

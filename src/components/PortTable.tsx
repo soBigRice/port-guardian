@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { useMemo } from "react";
 import { PortService } from "../types";
 import RiskBadge from "./RiskBadge";
 import SourceIcon from "./SourceIcon";
@@ -22,6 +23,9 @@ interface Props {
 
 export default function PortTable({ services, selected, loading, scanTotal, scannedCount, hasFilter, selectedIds, bookmarkedPorts, onSelect, onKill, onToggleSelect, onToggleSelectAll, onToggleBookmark }: Props) {
   const { t } = useTranslation();
+  const terminableServices = useMemo(() => services.filter((s) => s.can_terminate), [services]);
+  const allTerminableSelected =
+    terminableServices.length > 0 && terminableServices.every((s) => selectedIds.has(s.id));
 
   const handleOpenCwd = async (e: React.MouseEvent, cwd: string) => {
     e.stopPropagation();
@@ -83,7 +87,7 @@ export default function PortTable({ services, selected, loading, scanTotal, scan
               <input
                 type="checkbox"
                 className="row-check"
-                checked={services.filter((s) => s.can_terminate).length > 0 && services.filter((s) => s.can_terminate).every((s) => selectedIds.has(s.id))}
+                checked={allTerminableSelected}
                 onChange={onToggleSelectAll}
               />
             </th>
