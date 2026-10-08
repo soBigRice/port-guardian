@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="{{lang}}">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f7f8fa">
+  <meta name="description" content="{{description}}">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self'; style-src 'self'; script-src 'self'; connect-src https://api.github.com; base-uri 'self'; object-src 'none'">
+  <title>{{title}}</title>
+  <link rel="canonical" href="{{canonical}}">
+  <link rel="alternate" hreflang="zh-CN" href="{{zhUrl}}">
+  <link rel="alternate" hreflang="en" href="{{enUrl}}">
+  <link rel="alternate" hreflang="x-default" href="{{zhUrl}}">
+  <link rel="icon" type="image/png" href="{{assetBase}}assets/icon.png">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="{{title}}">
+  <meta property="og:description" content="{{description}}">
+  <meta property="og:url" content="{{canonical}}">
+  <meta property="og:locale" content="{{locale}}">
+  <meta property="og:image" content="{{zhUrl}}assets/app-preview.png">
+  <meta name="twitter:card" content="summary_large_image">
+  <link rel="stylesheet" href="{{assetBase}}site.css">
+  <script src="{{assetBase}}site.js" defer></script>
+</head>
+<body>
+  <svg class="icon-definitions" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <symbol id="arrow-up-right" viewBox="0 0 24 24"><path d="M6 18 18 6M6 6h12v12"/></symbol>
+    <symbol id="arrow-right" viewBox="0 0 24 24"><path d="M4 12h16m-6-6 6 6-6 6"/></symbol>
+    <symbol id="download-icon" viewBox="0 0 24 24"><path d="M12 3v12m-5-5 5 5 5-5M4 16v5h16v-5"/></symbol>
+    <symbol id="chevron" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+    <symbol id="apple" viewBox="0 0 24 24"><path fill="currentColor" stroke="none" d="M16.4 1.7c.1 1.3-.4 2.5-1.1 3.4-.8.9-1.9 1.5-3.1 1.4-.1-1.2.4-2.4 1.1-3.2.8-.9 2-1.5 3.1-1.6ZM20.5 17c-.5 1.2-.8 1.8-1.5 2.8-1 1.5-2.4 3.3-4.1 3.3-1.5 0-1.9-1-3.9-1-2 0-2.5 1-4 1-1.7 0-3-1.6-4-3.1C.2 15.9-.5 10.5 1.9 7.8c1.3-1.4 3.1-2.1 4.8-2.1 1.8 0 2.9 1 4.3 1 1.4 0 2.3-1 4.3-1 1.5 0 3.1.8 4.3 2.1-3.8 2.1-3.2 7.6.9 9.2Z" transform="translate(1 0) scale(.95)"/></symbol>
+    <symbol id="windows" viewBox="0 0 24 24"><path fill="currentColor" stroke="none" d="m2 4 8-1v8H2V4Zm10-1.3L22 1v10H12V2.7ZM2 13h8v8l-8-1v-7Zm10 0h10v10l-10-1.7V13Z"/></symbol>
+    <symbol id="github" viewBox="0 0 24 24"><path fill="currentColor" stroke="none" d="M12 2a10 10 0 0 0-3.16 19.49c.5.09.68-.22.68-.48v-1.86c-2.78.6-3.37-1.18-3.37-1.18-.45-1.16-1.11-1.47-1.11-1.47-.91-.62.07-.61.07-.61 1 .07 1.53 1.03 1.53 1.03.89 1.53 2.34 1.09 2.91.83.09-.65.35-1.09.64-1.34-2.22-.25-4.56-1.11-4.56-4.95 0-1.09.39-1.98 1.03-2.68-.1-.25-.45-1.27.1-2.65 0 0 .84-.27 2.75 1.03A9.58 9.58 0 0 1 12 6.82c.85 0 1.71.11 2.51.34 1.91-1.3 2.75-1.03 2.75-1.03.55 1.38.2 2.4.1 2.65.64.7 1.03 1.59 1.03 2.68 0 3.85-2.34 4.7-4.57 4.95.36.31.68.92.68 1.85v2.75c0 .27.18.58.69.48A10 10 0 0 0 12 2Z"/></symbol>
+  </svg>
+  <a class="skip-link" href="#main">{{skip}}</a>
+  <header class="site-header shell">
+    <a class="brand" href="{{homeHref}}" aria-label="Port Guardian"><img src="{{assetBase}}assets/icon.png" width="32" height="32" alt=""><span>Port Guardian</span></a>
+    <nav aria-label="{{navigation}}">
+      <a href="#features">{{navFeatures}}</a>
+      <a href="#download">{{navDownload}}</a>
+      <a href="https://github.com/soBigRice/port-guardian" target="_blank" rel="noopener noreferrer">GitHub</a>
+    </nav>
+    <div class="language-switch" role="group" aria-label="{{languages}}">
+      <a href="{{zhHref}}" lang="zh-CN" hreflang="zh-CN" {{zhCurrent}}>中文</a>
+      <a href="{{enHref}}" lang="en" hreflang="en" {{enCurrent}}>EN</a>
+    </div>
+  </header>
+  <main id="main" class="shell">
+    <section class="hero" aria-labelledby="hero-title">
+      <div class="hero-copy">
+        <h1 id="hero-title"><span>{{heroFirst}}</span><span>{{heroSecond}}</span></h1>
+        <p class="hero-description">{{heroDescription}}</p>
+        <div class="hero-actions">
+          <a class="button button-primary" href="#download"><svg class="icon" aria-hidden="true"><use href="#download-icon"/></svg>{{download}}</a>
+          <a class="text-link" href="https://github.com/soBigRice/port-guardian" target="_blank" rel="noopener noreferrer">{{source}}<svg class="icon" aria-hidden="true"><use href="#arrow-up-right"/></svg></a>
+        </div>
+        <p class="platform-note">{{platforms}}</p>
+      </div>
+      <div class="port-demo" data-state="occupied" aria-label="{{demoLabel}}">
+        <div class="port-grid" aria-hidden="true"></div>
+        <div class="port-message" data-error>EADDRINUSE</div>
+        <div class="port-number">:3000</div>
+        <div class="port-status" role="status" aria-live="polite"><span class="status-dot"></span><span data-status data-occupied="{{demoOccupied}}" data-available="{{demoAvailable}}">{{demoOccupied}}</span></div>
+        <button class="button button-demo" data-demo data-action="{{demoAction}}" data-reset="{{demoReset}}"><span data-demo-text>{{demoAction}}</span><svg class="icon" aria-hidden="true"><use href="#arrow-right"/></svg></button>
+        <p class="demo-note">{{demoNote}}</p>
+      </div>
+    </section>
+    <section id="features" class="product" aria-labelledby="preview-title">
+      <div class="section-heading"><h2 id="preview-title">{{previewTitle}}</h2><p>{{previewDescription}}</p></div>
+      <figure class="product-preview">
+        <img src="{{assetBase}}assets/app-preview.png" alt="{{previewAlt}}" width="1100" height="700" fetchpriority="high">
+        <figcaption>{{previewCaption}}</figcaption>
+      </figure>
+      <div class="feature-list">
+        <article><span class="feature-number">01</span><h3>{{featureOneTitle}}</h3><p>{{featureOneText}}</p></article>
+        <article><span class="feature-number">02</span><h3>{{featureTwoTitle}}</h3><p>{{featureTwoText}}</p></article>
+        <article><span class="feature-number">03</span><h3>{{featureThreeTitle}}</h3><p>{{featureThreeText}}</p></article>
+      </div>
+    </section>
+    <section id="download" class="download-section" aria-labelledby="download-title">
+      <div class="section-heading"><h2 id="download-title">{{downloadTitle}}</h2><p>{{downloadDescription}}</p></div>
+      <div class="download-options">
+        <a class="platform-download" data-platform="mac" href="{{macUrl}}"><svg class="platform-icon" aria-hidden="true"><use href="#apple"/></svg><span><strong>{{downloadMac}}</strong><small>{{macDetail}}</small></span><svg class="icon" aria-hidden="true"><use href="#download-icon"/></svg></a>
+        <a class="platform-download" data-platform="windows" href="{{windowsUrl}}"><svg class="platform-icon" aria-hidden="true"><use href="#windows"/></svg><span><strong>{{downloadWindows}}</strong><small>{{windowsDetail}}</small></span><svg class="icon" aria-hidden="true"><use href="#download-icon"/></svg></a>
+      </div>
+      <div class="release-links"><span>{{versionLabel}} <span data-version>{{version}}</span></span><a class="text-link" href="https://github.com/soBigRice/port-guardian/releases/latest" target="_blank" rel="noopener noreferrer"><svg class="icon" aria-hidden="true"><use href="#github"/></svg>{{releases}}<svg class="icon" aria-hidden="true"><use href="#arrow-up-right"/></svg></a></div>
+      <details class="install-notes"><summary><svg class="icon" aria-hidden="true"><use href="#chevron"/></svg>{{installTitle}}</summary><div><p>{{installIntro}}</p><p>{{installMac}}</p><p>{{installWindows}}</p><a class="text-link" href="{{readmeUrl}}" target="_blank" rel="noopener noreferrer">{{installMore}}<svg class="icon" aria-hidden="true"><use href="#arrow-up-right"/></svg></a></div></details>
+    </section>
+  </main>
+  <footer class="site-footer shell"><div class="footer-brand"><a class="brand" href="{{homeHref}}"><img src="{{assetBase}}assets/icon.png" width="24" height="24" alt=""><span>Port Guardian</span></a><a class="license" href="https://github.com/soBigRice/port-guardian/blob/main/README_EN.md#-license" target="_blank" rel="noopener noreferrer">{{license}}</a></div><a href="https://github.com/soBigRice" target="_blank" rel="noopener noreferrer">{{author}}</a></footer>
+</body>
+</html>

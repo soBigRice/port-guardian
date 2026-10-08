@@ -2,6 +2,8 @@
 
 > **[English Version](README_EN.md)** | **中文版**
 
+**[官网](https://sobigrice.github.io/port-guardian/)** · **[English website](https://sobigrice.github.io/port-guardian/en/)**
+
 <div align="center">
 
 <img src="src-tauri/icons/icon.png" alt="Port Guardian 图标" width="96" height="96" />
