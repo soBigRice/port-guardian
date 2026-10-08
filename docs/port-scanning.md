@@ -92,3 +92,19 @@
 发布整合验证（2026-10-08）：最终发布代码通过 `npm test` 12 项、`npm run build`、本机 `cargo test --locked --lib` 14 项。Windows CI 增加缓存污染下实时身份读取的回归；发布工作流在两个平台运行前端及 Rust 测试，再构建安装包并签署 updater 产物。
 
 Windows 发布回归入口（Node 20，2026-10-08）：v0.2.11 流水线日志证明 npm 的 Windows shell 把 `tests/*.test.mjs` 原样传给 Node，导致找不到测试文件；macOS shell 可展开所以本机及 macOS CI 未暴露。入口改为 `node --test tests/scan-state.test.mjs`。以后跨平台脚本避免依赖 shell 通配符展开；保留回归门槛，v0.2.11 未公开，使用新标签 v0.2.12 重建。
+
+## v0.2.12 发行核验
+
+2026-10-08 已公开 [v0.2.12](https://github.com/soBigRice/port-guardian/releases/tag/v0.2.12)，发行代码为 `041f751e33b1fa3a9f712f98f640b4afb1f0d38d`；[Release 流水线 37754195435](https://github.com/soBigRice/port-guardian/actions/runs/37754195435) 的 macOS、Windows 和公开发布任务均成功。两个平台各通过 12 项前端及 14 项 Rust 回归，Windows 包含扫描缓存污染下实时身份读取用例。
+
+- 经本机现有系统代理匿名下载公开安装包和 `latest.json`；元数据版本、标签指向及完整更新日志一致。比较日志内容时统一 LF/CRLF，Windows 换行本身不构成内容丢失。
+- macOS 更新包中的 `CFBundleShortVersionString=0.2.12`、`CFBundleIdentifier=com.port-guardian.app`；`lipo` 确认 Intel `x86_64` 与 Apple Silicon `arm64`。
+- 六个平台元数据项对应的三个唯一更新包均通过 `minisign` 对仓库现有公钥的验证；签名附件与元数据签名一致。安装包与更新包 SHA-256 均匹配 GitHub 公布的 digest。
+- v0.2.11 未公开，失败草稿已清理，保留标签和失败流水线历史。v0.2.12 发布未改写既有标签。
+- 未执行 v0.2.12 的实际覆盖安装及 Windows 实机交互，不能将产物、签名或 CI 成功当作这些场景已验收。此前原生 UI 证据对应上文明确标识的预览包。
+
+| 更新包 | SHA-256 |
+| --- | --- |
+| `Port.Guardian_universal.app.tar.gz` | `502434315549c43ce2016902c4ec261496a73e387ef78aa58120a200c2772f47` |
+| `Port.Guardian_0.2.12_x64-setup.nsis.zip` | `29050152218b49ea64436db17428a1144e069e30cfa0cfc2a711ce7718261fe5` |
+| `Port.Guardian_0.2.12_x64-setup.exe` | `40f41f18f6a0abc6f492d1144fc0c1b4106b3067b06be6f415f525541d1133a5` |
