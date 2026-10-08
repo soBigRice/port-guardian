@@ -57,8 +57,10 @@
 
 final result: passed
 
-## v0.2.11 发布整合
+## v0.2.12 发布整合
 
 保留 v0.2.10 的 Windows 进程/图标优化、Unresolved 端口保护；终止操作读取实时身份，后续刷新只传起止进度及命令快照。UI 布局与已实看的方案 2 一致。发布回归结果以 GitHub Actions Release 的对应 tag/SHA 为准，历史预览包证据仍对应 0.2.8 测试标识。
 
 整合后的本机验证：`npm test` 12 项、`npm run build`、`cargo test --locked --lib` 14 项及版本/更新日志提取检查通过。
+
+发布状态：v0.2.11 的 macOS 构建通过，Windows 在 npm 测试入口因通配符未展开而失败，未公开发布。修正为明确文件路径，使用 v0.2.12 新标签重建，不改写已有标签。

@@ -1,10 +1,10 @@
 {
   "name": "port-guardian",
   "private": true,
-  "version": "0.2.11",
+  "version": "0.2.12",
   "type": "module",
   "scripts": {
-    "test": "node --test tests/*.test.mjs",
+    "test": "node --test tests/scan-state.test.mjs",
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
