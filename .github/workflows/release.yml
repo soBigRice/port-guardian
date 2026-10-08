@@ -176,6 +176,12 @@ jobs:
             echo "CHANGELOG_EOF"
           } >> "$GITHUB_OUTPUT"
 
+      - name: Run regression tests
+        shell: bash
+        run: |
+          npm test
+          cargo test --manifest-path src-tauri/Cargo.toml --locked --lib
+
       - name: Build with Tauri
         uses: tauri-apps/tauri-action@v0
         env:

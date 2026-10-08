@@ -96,7 +96,7 @@ export function usePortScan() {
     if (streamingRef.current) flushRef.current = setInterval(flushPending, 150);
     try {
       // 完整命令返回值独立于事件派发：晚到、丢失或旧轮事件不能污染快照。
-      const result = await invoke<ScanResult>("scan_ports_stream", {scanId});
+      const result = await invoke<ScanResult>("scan_ports_stream", {scanId, stream: streamingRef.current});
       if (result.scan_id !== scanId) throw new Error("Scan response ID does not match request");
       finish(result, null);
     } catch (error) {

@@ -106,8 +106,8 @@ port-guardian/
     │   ├── main.rs               # Rust 入口
     │   ├── lib.rs                # Tauri 应用构建 & 命令注册
     │   ├── commands.rs           # Tauri IPC 命令
-    │   ├── port_scanner.rs       # TCP/UDP 扫描（netstat2）
-    │   ├── process_resolver.rs   # 进程信息解析（ps + lsof）
+    │   ├── port_scanner.rs       # 端口扫描（netstat2 / 系统 API）
+    │   ├── process_resolver.rs   # 进程信息解析（系统 API / ps / PowerShell）
     │   ├── process_tree.rs       # 进程树溯源
     │   ├── service_classifier.rs # 服务分类引擎
     │   ├── safety_checker.rs     # 安全等级评估
@@ -127,6 +127,9 @@ flowchart TD
   Commands --> Scanner["port_scanner<br/>TCP LISTEN + UDP 绑定 / 保留多地址"]
   Scanner --> Resolver["本轮按 PID 缓存解析与溯源"]
   Resolver --> Classifier["分类与风险判断"]
+  Resolver -->|"解析失败"| Unresolved["Unresolved 端口行 / 禁止终止"]
+  Unresolved --> Stream
+  Unresolved --> Merge
   Classifier -->|"带 scan_id 的进度和条目事件"| Stream["首屏 150 ms 批量显示"]
   Classifier -->|"完整 ScanResult 命令返回值"| Merge["mergeScannedServices"]
   Stream --> List["services"]
@@ -395,6 +398,38 @@ npm run tauri build
 - 解决方案：后端解析进程信息时，优先用真实可执行文件路径推导进程名，其次用命令行首个可执行项，最后才使用 `comm` 字段；同时把命令行中的合法 `%HH` 序列按 UTF-8 解码，进程树解析同步复用相同清洗规则。
 - 后续注意点：命令行展示问题优先查 `process_resolver.rs` / `process_tree.rs` 的系统输出解析，不要只改前端样式；新增展示字段时要区分真实 PID/路径数据和用户可读展示文本。
 
+#### 2026-07-03：Windows 进程缓存命中后 user/cwd 为空
+
+- 问题描述：Windows 扫描命中批量进程缓存时，端口列表可能缺少工作目录；安全判断也可能拿到空用户字段。
+- 出现原因：`prefetch_all_processes` 为了避免频繁调用 WMI/PowerShell，只批量缓存 PID、PPID、进程名、命令行和可执行路径；`resolve_process` 命中缓存后直接返回，导致后续 `get_cwd` 和 owner 查询不会执行。
+- 影响范围：影响 Windows 列表目录展示、详情面板信息完整性，以及“非当前用户进程不可直接终止”的安全判断。
+- 解决方案：缓存命中后按需补齐 owner 和 cwd，并写回缓存；owner 查询失败时写入 `unknown`，让安全判断走保守分支；全量缓存刷新时，如果同一 PID 的命令和可执行路径未变，只保留上一轮已补齐的 owner，cwd 在刷新后重新读取，避免长期保留旧目录。
+- 后续注意点：新增 Windows 进程缓存字段时，必须区分“快速批量字段”和“安全判断必需字段”；安全字段不能因为性能缓存被静默置空。
+
+#### 2026-07-03：Windows 扫描卡住或只显示少量端口
+
+- 问题描述：Windows 上系统能看到大量监听/UDP 端口，但应用启动后可能只流式显示十几个端口，后续不再继续展示。
+- 出现原因：父进程链解析命中缓存时调用了完整 `resolve_process`，会顺带补齐 owner/cwd，导致每一层父进程都可能触发较重查询；同时端口对应进程解析失败时后端直接 `continue`，这些端口会被隐藏。
+- 影响范围：影响 Windows 首屏扫描速度、扫描完整性和用户对端口数量的判断；不影响已经成功展示端口的终止逻辑。
+- 解决方案：父进程链改为只读取缓存里的轻量字段，不触发 owner/cwd 补齐；Windows owner 查询改为原生 `OpenProcessToken + GetTokenInformation + LookupAccountSidW`，避免每个 PID 启动 PowerShell；进程解析失败时仍生成 `Unresolved` 端口行并禁止终止。
+- 后续注意点：扫描链路中不要让“补充展示字段”阻塞端口枚举；解析失败的端口必须可见但不可终止，避免为了完整性牺牲安全性。
+
+#### 2026-07-03：后续手动刷新仍逐条 IPC，且同 id 字段变化不更新
+
+- 问题描述：首屏之后的手动刷新虽然不再流式刷表，但后端仍逐条发送 `port-found`；同时非流式 diff 只比较 id 集合，同一 PID/端口的命令、目录、用户、风险等字段变化可能保留旧值。
+- 出现原因：前端 `isStream` 只控制是否定时 flush 到 UI，但调用后端时仍用 `streamResults: !silent`；`mergeScannedServices` 为了减少重绘，只按 id 集合判断是否需要更新。
+- 影响范围：端口多时会产生不必要 IPC 和前端事件处理；刷新后列表和详情可能显示旧字段，尤其会掩盖 Windows 缓存补齐后的 owner/cwd 更新。
+- 解决方案：只有首屏扫描传 `streamResults=true`，后续手动刷新和静默轮询都走批量 `scan-results`；diff 时按 id 去重并比较完整展示字段，字段变化时替换对象，选中的详情同步到最新对象。
+- 后续注意点：后续如果增加扫描模式，必须同时确认后端事件数量、前端 flush 策略和 state diff 条件；不要只用 id 集合判断“无变化”。
+
+#### 2026-07-03：Windows cargo 测试偶发 target 文件锁
+
+- 问题描述：第一次执行 `cargo test` 时失败，提示无法删除 `target/debug/build/.../build-script-build.exe`，错误为 `os error 32`。
+- 出现原因：Windows 上构建产物可能被杀毒软件、索引器或另一个 cargo/rustc 进程短暂占用；这类错误发生在删除/替换 target 文件阶段。
+- 影响范围：影响本地验证命令的稳定性；不代表源码编译失败，也不影响已生成的 release 应用。
+- 解决方案：确认没有并发 cargo 进程后重试；本次重试后 `cargo test` 正常通过。
+- 后续注意点：遇到 `os error 32` 先排查文件锁和并发构建，不要直接按业务编译错误修改源码。
+
 #### 2026-10-08：扫描数据与刷新体验修复
 
 - macOS 工作目录全空来自手写系统结构体尺寸错误，已改用现有 `libc` 的系统类型。
@@ -433,7 +468,7 @@ npm run tauri build
 通过 `netstat2` 调用系统原生 API（macOS: libproc, Windows: GetExtendedTcpTable/UdpTable, Linux: /proc/net）扫描 TCP 监听端口和 UDP 绑定端口。
 
 ### 2. 进程解析
-对每个 PID 执行 `ps -p <PID>` 获取进程详情（父进程 PID、用户、命令行），再通过 `lsof -p <PID>` 获取工作目录和可执行文件路径。
+macOS / Linux 使用 `ps` 获取父进程、用户和命令行；macOS 通过 `proc_pidinfo` / `proc_pidpath` 获取工作目录和可执行路径，Linux 通过 `/proc/<pid>` 获取目录和可执行路径。Windows 使用 `Get-CimInstance Win32_Process` 批量缓存进程基础信息，owner 通过原生 Token API 读取，cwd 通过读取 PEB 的 CurrentDirectory 获取；如果进程解析失败，仍展示端口但禁止终止。
 
 ### 3. 进程树溯源
 从当前进程向上遍历父进程链（最多 20 层），通过进程名和命令行特征识别启动来源（IDE、终端、浏览器等）。
@@ -457,7 +492,7 @@ npm run tauri build
 ### 6. 进程终止
 - 默认发送 `SIGTERM`（信号 15）优雅终止
 - 可选发送 `SIGKILL`（信号 9）强制终止
-- 终止后 500ms 检查进程是否已退出
+- 终止后等待进程退出，必要时轮询确认端口是否释放
 
 ---
 

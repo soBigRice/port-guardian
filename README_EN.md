@@ -106,8 +106,8 @@ port-guardian/
     │   ├── main.rs               # Rust entry point
     │   ├── lib.rs                # Tauri app build & command registration
     │   ├── commands.rs           # Tauri IPC commands
-    │   ├── port_scanner.rs       # Port scanning (lsof)
-    │   ├── process_resolver.rs   # Process info resolution (ps + lsof)
+    │   ├── port_scanner.rs       # TCP/UDP scanning (netstat2)
+    │   ├── process_resolver.rs   # Process info resolution (system APIs / ps / PowerShell)
     │   ├── process_tree.rs       # Process tree tracing
     │   ├── service_classifier.rs # Service classification engine
     │   ├── safety_checker.rs     # Safety level assessment
@@ -359,10 +359,10 @@ Uses USTC (University of Science and Technology of China) crates.io mirror by de
 ## ⚡ How It Works
 
 ### 1. Port Scanning
-Executes `lsof -nP -iTCP -sTCP:LISTEN` to obtain all TCP listening ports, parsing port numbers, PIDs, and basic information.
+Uses `netstat2` to enumerate TCP listeners and bound UDP sockets. Records are grouped by protocol, port and PID while preserving all local addresses; unbound port 0 sockets are excluded.
 
 ### 2. Process Resolution
-For each PID, executes `ps -p <PID>` to get process details (parent PID, user, command line), then uses `lsof -p <PID>` to get working directory and executable path.
+Resolves each PID once per scan. macOS combines UTF-8 `ps` output with native process path and working-directory APIs; Windows uses a lightweight process cache, native owner lookup and PEB directory reads. Unresolved ports remain visible with termination disabled.
 
 ### 3. Process Tree Tracing
 Traverses the parent process chain from the current process (up to 20 levels), identifying the launch source (IDE, terminal, browser, etc.) through process name and command line characteristics.
@@ -386,7 +386,8 @@ Based on process name, command line arguments, and other characteristics, classi
 ### 6. Process Termination
 - Default sends `SIGTERM` (signal 15) for graceful termination
 - Optional `SIGKILL` (signal 9) for force termination
-- Checks if process has exited 500ms after termination
+- Rechecks live process identity and port ownership before signaling, waits for actual exit, and checks whether the port was released
+- Batch confirmation deduplicates processes by PID; normal termination never escalates to force automatically
 
 ---
 

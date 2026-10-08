@@ -8,7 +8,7 @@ pub struct TerminateResult {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// Unix (macOS / Linux) 实现 — 使用 kill 和 lsof
+// Unix (macOS / Linux) 实现 — 使用 kill 和 netstat2
 // ═══════════════════════════════════════════════════════════════
 
 /// 普通终止进程 (SIGTERM)
@@ -109,7 +109,7 @@ pub fn wait_for_process_exit(pid: u32, timeout_ms: u32) -> bool {
 #[cfg(unix)]
 pub fn is_port_listening(port: u16) -> bool {
     use netstat2::{
-        get_sockets_info, AddressFamilyFlags, ProtocolFlags, ProtocolSocketInfo, TcpState,
+        AddressFamilyFlags, ProtocolFlags, ProtocolSocketInfo, TcpState, get_sockets_info,
     };
 
     let af = AddressFamilyFlags::IPV4 | AddressFamilyFlags::IPV6;
@@ -245,7 +245,7 @@ pub fn is_process_alive(pid: u32) -> bool {
 pub fn wait_for_process_exit(pid: u32, timeout_ms: u32) -> bool {
     use windows::Win32::Foundation::CloseHandle;
     use windows::Win32::System::Threading::{
-        OpenProcess, WaitForSingleObject, INFINITE, PROCESS_SYNCHRONIZE,
+        INFINITE, OpenProcess, PROCESS_SYNCHRONIZE, WaitForSingleObject,
     };
 
     unsafe {
@@ -254,7 +254,11 @@ pub fn wait_for_process_exit(pid: u32, timeout_ms: u32) -> bool {
             Err(_) => return true, // 进程已不存在，视为退出
         };
 
-        let timeout = if timeout_ms == 0 { INFINITE } else { timeout_ms };
+        let timeout = if timeout_ms == 0 {
+            INFINITE
+        } else {
+            timeout_ms
+        };
         let result = WaitForSingleObject(handle, timeout);
         let _ = CloseHandle(handle);
 
@@ -267,7 +271,7 @@ pub fn wait_for_process_exit(pid: u32, timeout_ms: u32) -> bool {
 #[cfg(windows)]
 pub fn is_port_listening(port: u16) -> bool {
     use netstat2::{
-        get_sockets_info, AddressFamilyFlags, ProtocolFlags, ProtocolSocketInfo, TcpState,
+        AddressFamilyFlags, ProtocolFlags, ProtocolSocketInfo, TcpState, get_sockets_info,
     };
 
     let af = AddressFamilyFlags::IPV4 | AddressFamilyFlags::IPV6;

@@ -1,4 +1,5 @@
 use serde::Serialize;
+use std::collections::HashMap;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct PortInfo {
@@ -15,11 +16,12 @@ pub struct PortInfo {
 /// - Linux: 通过 /proc/net/tcp 和 /proc/net/udp
 pub fn scan_listening_ports() -> Result<Vec<PortInfo>, String> {
     use netstat2::{
-        get_sockets_info, AddressFamilyFlags, ProtocolFlags, ProtocolSocketInfo, TcpState,
+        AddressFamilyFlags, ProtocolFlags, ProtocolSocketInfo, TcpState, get_sockets_info,
     };
 
     let af_flags = AddressFamilyFlags::IPV4 | AddressFamilyFlags::IPV6;
     let mut ports = Vec::new();
+    let mut seen = HashMap::new();
 
     // ── TCP: 只要 LISTEN 状态 ──
     let tcp_sockets = get_sockets_info(af_flags, ProtocolFlags::TCP)
@@ -37,6 +39,7 @@ pub fn scan_listening_ports() -> Result<Vec<PortInfo>, String> {
             for &pid in &si.associated_pids {
                 add_port(
                     &mut ports,
+                    &mut seen,
                     PortInfo {
                         port,
                         protocol: "TCP".to_string(),
@@ -61,6 +64,7 @@ pub fn scan_listening_ports() -> Result<Vec<PortInfo>, String> {
             for &pid in &si.associated_pids {
                 add_port(
                     &mut ports,
+                    &mut seen,
                     PortInfo {
                         port,
                         protocol: "UDP".to_string(),
@@ -77,14 +81,19 @@ pub fn scan_listening_ports() -> Result<Vec<PortInfo>, String> {
 }
 
 // 服务仍按协议、端口和 PID 合并，但保留全部绑定地址（包括 IPv4/IPv6）。
-fn add_port(ports: &mut Vec<PortInfo>, incoming: PortInfo) {
+fn add_port(
+    ports: &mut Vec<PortInfo>,
+    seen: &mut HashMap<(u32, String, u16), usize>,
+    incoming: PortInfo,
+) {
     // 系统也会返回尚未绑定的 UDP 套接字；端口 0 不代表可释放的占用端口。
     if incoming.port == 0 {
         return;
     }
-    if let Some(existing) = ports.iter_mut().find(|p| {
-        p.pid == incoming.pid && p.port == incoming.port && p.protocol == incoming.protocol
-    }) {
+    let key = (incoming.pid, incoming.protocol.clone(), incoming.port);
+    // 保留已发布版本的索引去重，避免每次添加端口都遍历全部服务。
+    if let Some(&index) = seen.get(&key) {
+        let existing = &mut ports[index];
         let mut addresses: Vec<_> = existing
             .local_address
             .split(", ")
@@ -96,6 +105,7 @@ fn add_port(ports: &mut Vec<PortInfo>, incoming: PortInfo) {
             existing.local_address = addresses.join(", ");
         }
     } else {
+        seen.insert(key, ports.len());
         ports.push(incoming);
     }
 }
@@ -106,8 +116,10 @@ mod tests {
     #[test]
     fn excludes_unbound_sockets() {
         let mut ports = Vec::new();
+        let mut seen = HashMap::new();
         add_port(
             &mut ports,
+            &mut seen,
             PortInfo {
                 port: 0,
                 protocol: "UDP".into(),
@@ -121,9 +133,11 @@ mod tests {
     #[test]
     fn preserves_both_addresses_without_duplicate_rows() {
         let mut ports = Vec::new();
+        let mut seen = HashMap::new();
         for address in ["127.0.0.1", "::1", "127.0.0.1"] {
             add_port(
                 &mut ports,
+                &mut seen,
                 PortInfo {
                     port: 3000,
                     protocol: "TCP".into(),
@@ -137,6 +151,7 @@ mod tests {
         assert_eq!(ports[0].local_address, "127.0.0.1, ::1");
         add_port(
             &mut ports,
+            &mut seen,
             PortInfo {
                 port: 3000,
                 protocol: "UDP".into(),

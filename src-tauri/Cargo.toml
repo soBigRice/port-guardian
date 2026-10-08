@@ -1,6 +1,6 @@
 [package]
 name = "port-guardian"
-version = "0.2.8"
+version = "0.2.11"
 description = "Port Guardian - 开发端口服务识别与安全清理工具"
 authors = ["you"]
 edition = "2024"
@@ -24,6 +24,7 @@ netstat2 = "0.9"
 libc = "0.2.186"
 
 [target.'cfg(windows)'.dependencies]
+systemicons = "0.9.13"
 windows = { version = "0.58", features = [
     "Win32_Foundation",
     "Win32_System_Threading",

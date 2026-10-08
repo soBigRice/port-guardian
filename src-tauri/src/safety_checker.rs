@@ -93,7 +93,7 @@ pub fn judge(
         },
 
         ServiceType::WebServer => {
-            if is_user_web_server(&name_stripped, &cmd_lower, user, current_user) {
+            if is_user_web_server(name_stripped, &cmd_lower, user, current_user) {
                 SafetyJudgment {
                     level: SafetyLevel::Safe,
                     reason: "用户启动的 Web 开发服务".to_string(),

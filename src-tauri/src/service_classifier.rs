@@ -40,12 +40,12 @@ pub fn classify(
     if is_system_service(&name_lower) {
         return ServiceClassification {
             service_type: ServiceType::SystemService,
-            service_name: friendly_system_name(&name_stripped),
+            service_name: friendly_system_name(name_stripped),
         };
     }
 
     // 2. Docker 服务检测
-    if is_docker_service(&name_stripped, &cmd_lower, parent_chain) {
+    if is_docker_service(name_stripped, &cmd_lower, parent_chain) {
         return ServiceClassification {
             service_type: ServiceType::DockerService,
             service_name: "Docker".to_string(),
@@ -53,7 +53,7 @@ pub fn classify(
     }
 
     // 3. 数据库服务检测
-    if let Some(db_name) = detect_database(&name_stripped, port) {
+    if let Some(db_name) = detect_database(name_stripped, port) {
         return ServiceClassification {
             service_type: ServiceType::DatabaseService,
             service_name: db_name,
@@ -61,7 +61,7 @@ pub fn classify(
     }
 
     // 4. 基础设施服务检测
-    if let Some(infra_name) = detect_infra(&name_stripped, port) {
+    if let Some(infra_name) = detect_infra(name_stripped, port) {
         return ServiceClassification {
             service_type: ServiceType::InfraService,
             service_name: infra_name,
@@ -69,7 +69,7 @@ pub fn classify(
     }
 
     // 5. Web 服务器检测
-    if let Some(ws_name) = detect_web_server(&name_stripped, &cmd_lower) {
+    if let Some(ws_name) = detect_web_server(name_stripped, &cmd_lower) {
         return ServiceClassification {
             service_type: ServiceType::WebServer,
             service_name: ws_name,
@@ -77,7 +77,7 @@ pub fn classify(
     }
 
     // 6. 用户应用程序检测（浏览器、通讯工具等）
-    if let Some(app_name) = detect_app(&name_stripped, &cmd_lower) {
+    if let Some(app_name) = detect_app(name_stripped, &cmd_lower) {
         return ServiceClassification {
             service_type: ServiceType::AppService,
             service_name: app_name,
@@ -86,7 +86,7 @@ pub fn classify(
 
     // 7. 开发服务检测
     if let Some((is_ai, dev_name)) =
-        detect_dev_service(&name_stripped, &cmd_lower, source, parent_chain)
+        detect_dev_service(name_stripped, &cmd_lower, source, parent_chain)
     {
         return ServiceClassification {
             service_type: if is_ai {
@@ -209,7 +209,7 @@ fn is_system_service(name: &str) -> bool {
         "dllhost",
         "conhost",
     ];
-    SYSTEM_PROCESSES.iter().any(|&s| stripped == s)
+    SYSTEM_PROCESSES.contains(&stripped)
 }
 
 fn is_docker_service(name: &str, cmd: &str, chain: &[ProcessNode]) -> bool {

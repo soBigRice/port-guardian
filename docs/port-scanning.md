@@ -1,6 +1,6 @@
 # 端口扫描、刷新与终止
 
-核对日期：2026-10-08。基于 `4d2a2db` 上的本次未提交修改；自动验证通过，桌面主观体验及 Windows 实机仍待验收。
+核对日期：2026-10-08。v0.2.11 发布代码，已合入 `b19ef86`（v0.2.10）的兼容修复；自动验证通过，桌面主观体验及 Windows 实机仍待验收。
 
 ## 入口和职责
 
@@ -11,7 +11,7 @@
 | `src/App.tsx` | `handleKill` / `handleBatchKill` | 筛选与详情组合、确认操作、执行反馈 |
 | `src/components/PortTable.tsx` / `ServiceDetail.tsx` / `src/styles/workspace.css` | `PortTable` / `ServiceDetail` | 项目折叠、行内详情、命令复制、完整技术列与主题/窄窗样式 |
 | `src-tauri/src/commands.rs` | `scan_services` / `scan_ports_stream` / `terminate_process` | 后端扫描互斥、按 PID 复用解析、事件与最终结果、执行前复核 |
-| `src-tauri/src/port_scanner.rs` | `scan_listening_ports` / `add_port` | TCP LISTEN、UDP 绑定，以及地址合并 |
+| `src-tauri/src/port_scanner.rs` | `scan_listening_ports` / `add_port` | TCP LISTEN、UDP 绑定，以及基于索引的地址合并 |
 | `src-tauri/src/process_resolver.rs` | `resolve_process` / `get_cwd_macos` | 进程和工作目录；macOS 使用已有 `libc` 的系统 ABI 类型 |
 | `src-tauri/src/service_classifier.rs` | `classify` | 进程名、命令和来源分类；端口号本身不构成数据库或基础设施身份 |
 
@@ -20,11 +20,12 @@
 `监听全部就绪 → refresh(scanId) → scan_ports_stream → spawn_blocking → ScanGuard → prefetch → 扫描套接字 → 本轮 PID 解析缓存 → 分类/风险 → ScanResult`
 
 - `scan-start` 和 `scan-progress` 携带 `{scan_id,total,processed,skipped}`；`port-found` 携带 `{scan_id,service}`。只接收当前扫描 ID。
-- 首屏每 150 ms 批量写入流式条目。后续扫描保留已有列表，直到命令返回完整 `{scan_id,total,skipped,services}` 快照。
+- 首屏每 150 ms 批量写入流式条目。后续扫描传 `stream: false`，仅起止进度及完整命令快照跨 IPC；保留已有列表，直到命令返回完整 `{scan_id,total,skipped,services}` 快照。
 - 最终快照不依赖事件送达顺序或完整性。不要恢复“空的完成事件到达就用 pending 替换列表”的路径。
 - 事件监听注册失败时清理已注册监听，仍通过命令完整返回值完成扫描和后续刷新。
 - 正常完整扫描可以删除不存在的条目，并更新同 ID 的所有字段；无变化时保留对象和数组引用。
-- 解析被跳过的部分扫描仅更新已收到条目，保留未核实的旧条目并明确警告。启动失败和 30 秒超时不替换后续刷新中的旧列表，也不更新“上次完整刷新”时间。
+- 无法解析进程时显示不可终止的 `Unresolved` 行。解析不完整的部分扫描仅更新已收到条目，保留未核实的旧条目并明确警告。启动失败和 30 秒超时不替换后续刷新中的旧列表，也不更新“上次完整刷新”时间。
+- Windows 扫描沿用 v0.2.10 的轻量父进程缓存及原生用户/图标查询；终止前通过 `resolve_process_for_termination` 绕过 30 秒缓存读取实时身份。
 - 每条记录的 ID 仍为 `protocol-port-pid`。多个 IPv4/IPv6 地址合并到 `local_address`，不增加重复服务行。
 - 排除系统返回的未绑定端口（local_port 为 0）；这类套接字没有可释放的端口，不应展示为服务。
 - 手动刷新接管正在执行的后台扫描并显示反馈，保留详情、多选和筛选。可见窗口在首扫结束后每 10 秒轮询；隐藏或失焦暂停。
@@ -72,7 +73,7 @@
 ## 验证
 
 - `npm test`：`tests/scan-state.test.mjs`，12 项状态、查询、排序、PID 去重和完整路径分组回归。
-- `cargo test --locked --lib`：13 项 Rust 回归，包括真实 macOS 当前目录读取、未绑定套接字过滤、双栈地址聚合、分类和终止保护。
+- `cargo test --locked --lib`：14 项本机 Rust 回归，包括真实 macOS 当前目录读取、未绑定套接字过滤、双栈地址聚合、分类、Unresolved 行和终止保护。
 - `npm run build`：TypeScript 和 Vite 构建。
 - 本机真实扫描成功读取工作目录，同进程双栈地址保留。服务数量随本机运行状态变化，本次未进行相同负载的性能基准对比。
 - 两个临时监听子进程：陈旧身份请求被拒绝；正常 SIGTERM 退出；忽略 SIGTERM 时返回失败且进程继续存活；明确 force 后退出。子进程与临时文件均在检查后清理。
@@ -80,10 +81,12 @@
 - 本地 macOS `.app` 测试包通过构建，使用一次性配置覆盖关闭 updater 产物生成（本地无更新签名私钥），项目发布配置保持原样。
 - 真实 macOS 桌面窗口确认首扫、精确查询 5173、开发服务目录/命令详情和手动刷新保留详情；最终测试包排除未绑定的“端口 0”，保留 TCP/UDP 服务。测试应用、浏览器回归页和临时服务均已关闭，隔离 fixture 缓存及临时文件已清理。主观体验仍待用户验收。
 
-参考：已有 `libc 0.2.186` 的 macOS 类型、[Apple proc_info.h](https://github.com/apple-oss-distributions/xnu/blob/main/bsd/sys/proc_info.h)、[Tauri 2 command 返回值与异步调用](https://v2.tauri.app/develop/calling-rust/)。扫描后端未新增依赖；UI 图标依赖见上文。
+参考：已有 `libc 0.2.186` 的 macOS 类型、[Apple proc_info.h](https://github.com/apple-oss-distributions/xnu/blob/main/bsd/sys/proc_info.h)、[Tauri 2 command 返回值与异步调用](https://v2.tauri.app/develop/calling-rust/)。扫描后端未新增依赖，保留 v0.2.10 的 Windows `systemicons` 依赖；UI 图标依赖见上文。
 
 ## UI 预览包与现有安装的边界
 
 本地调试包和已安装应用共用 `com.port-guardian.app` 时，窗口工具可能读到其他实例；本次曾观察到测试目录 `.app` 版本变为 0.2.10，且二进制 SHA 与刚构建的调试二进制不同。不能将该窗口当作当前代码证据。预览构建使用临时 CLI 配置：`productName=Port Guardian UI Preview`、`identifier=com.port-guardian.ui-preview`、updater endpoint 指向本机未监听的 HTTPS 端口并关闭 updater 产物生成。这些覆盖仅用于本地验证，仓库发布标识、版本和更新地址保持原样。核对 `.app` Info.plist 版本及与编译输出相同的二进制 SHA 后，才检查首扫、查询、详情和标题栏拖动。
 
 最终 UI 验证：12 项前端回归通过，浏览器精确搜索、折叠/平铺、技术列、复制、批量确认、JSON 导出、失败保留及 800×600 中英文/深色布局通过；控制台无 error/warn。独立 macOS 预览包版本 0.2.8、与编译输出 SHA 一致，真实扫描、1439 查询、长路径/命令、标题拖动操作及刷新后保留详情通过。临时服务、下载、页面、测试进程和 fixture 缓存已清理；主观效果待用户验收。
+
+发布整合验证（2026-10-08）：最终 0.2.11 代码通过 `npm test` 12 项、`npm run build`、本机 `cargo test --locked --lib` 14 项。Windows CI 增加缓存污染下实时身份读取的回归；发布工作流在两个平台运行前端及 Rust 测试，再构建安装包并签署 updater 产物。

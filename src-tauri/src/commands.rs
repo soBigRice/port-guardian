@@ -79,6 +79,38 @@ impl Drop for ScanGuard {
     }
 }
 
+// 端口已经由系统 API 扫到，但进程详情可能因为权限、进程退出或系统保护读取失败。
+// 这种情况下仍展示端口，避免用户误以为“只扫到一部分”；同时禁止终止，保持安全优先。
+fn build_unresolved_port_service(port_info: port_scanner::PortInfo, reason: &str) -> PortService {
+    PortService {
+        id: format!(
+            "{}-{}-{}",
+            port_info.protocol, port_info.port, port_info.pid
+        ),
+        port: port_info.port,
+        protocol: port_info.protocol,
+        local_address: port_info.local_address,
+        state: port_info.state,
+        pid: port_info.pid,
+        process_name: if port_info.pid == 0 {
+            "Unknown Process".to_string()
+        } else {
+            format!("PID {}", port_info.pid)
+        },
+        executable_path: String::new(),
+        command_line: String::new(),
+        cwd: String::new(),
+        user: String::new(),
+        parent_chain: Vec::new(),
+        source: "Unknown".to_string(),
+        service_type: ServiceType::Unknown,
+        service_name: "Unresolved".to_string(),
+        safety_level: SafetyLevel::Danger,
+        safety_reason: format!("无法解析该端口对应进程，已禁止终止：{}", reason),
+        can_terminate: false,
+    }
+}
+
 fn scan_services(
     scan_id: String,
     mut report: impl FnMut(&ScanProgress, Option<&PortService>) -> Result<(), String>,
@@ -108,9 +140,11 @@ fn scan_services(
         progress.processed += 1;
         let (process, parent_chain, source) = match resolved {
             Ok(info) => info,
-            Err(_) => {
+            Err(reason) => {
                 progress.skipped += 1;
-                report(&progress, None)?;
+                let service = build_unresolved_port_service(port_info, reason);
+                report(&progress, Some(&service))?;
+                services.push(service);
                 continue;
             }
         };
@@ -165,14 +199,23 @@ pub fn scan_ports() -> Result<Vec<PortService>, String> {
 
 /// 事件提供首屏和进度反馈；命令返回的完整快照才是最终结果，避免事件收尾竞态。
 #[tauri::command]
-pub async fn scan_ports_stream(app: AppHandle, scan_id: String) -> Result<ScanResult, String> {
+pub async fn scan_ports_stream(
+    app: AppHandle,
+    scan_id: String,
+    stream: Option<bool>,
+) -> Result<ScanResult, String> {
+    let stream = stream.unwrap_or(true);
     tauri::async_runtime::spawn_blocking(move || {
         scan_services(scan_id, |progress, service| {
+            // 后续刷新使用命令快照，只发送起止进度，保留已发布的批量 IPC 行为。
+            if !stream && progress.processed != 0 && progress.processed != progress.total {
+                return Ok(());
+            }
             if progress.processed == 0 {
                 app.emit("scan-start", progress)
                     .map_err(|e| e.to_string())?;
             }
-            if let Some(service) = service {
+            if stream && let Some(service) = service {
                 app.emit(
                     "port-found",
                     PortFound {
@@ -263,8 +306,7 @@ pub fn terminate_process(
     {
         return Err("该进程已不再占用所选端口，请刷新列表".into());
     }
-    process_resolver::prefetch_all_processes();
-    let process = process_resolver::resolve_process(pid)?;
+    let process = process_resolver::resolve_process_for_termination(pid)?;
     let chain = process_tree::build_parent_chain(pid);
     let source = process_tree::identify_source(&chain);
     let class = service_classifier::classify(&process, &chain, port, &source);
@@ -535,14 +577,14 @@ pub fn get_source_icon(source: String, executable_path: Option<String>) -> Optio
     // 检查缓存
     {
         let cache = ICON_CACHE.lock().unwrap();
-        if let Some(ref map) = *cache {
-            if let Some(cached) = map.get(&cache_key) {
-                return if cached.is_empty() {
-                    None
-                } else {
-                    Some(cached.clone())
-                };
-            }
+        if let Some(ref map) = *cache
+            && let Some(cached) = map.get(&cache_key)
+        {
+            return if cached.is_empty() {
+                None
+            } else {
+                Some(cached.clone())
+            };
         }
     }
 
@@ -581,62 +623,12 @@ fn normalize_windows_exe_path(path: &str) -> Option<String> {
 }
 
 #[cfg(windows)]
-fn extract_windows_icon_data_url(exe_path: &str, cache_key: &str) -> Option<String> {
-    use crate::windows_command::hidden_command;
-
-    // 用 PowerShell 从 .exe 提取图标，通过临时文件中转（避免管道编码问题）
-    let tmp_dir = std::env::temp_dir();
-    let safe_name: String = cache_key
-        .chars()
-        .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
-        .collect();
-    let tmp_png = tmp_dir.join(format!("port-guardian-icon-{}.png", safe_name));
-    let tmp_ps1 = tmp_dir.join(format!("port-guardian-icon-{}.ps1", safe_name));
-
-    // 写 PowerShell 脚本文件（避免命令行转义问题）
-    let ps_content = format!(
-        "chcp 65001 > $null\r\n\
-         $ErrorActionPreference = 'SilentlyContinue'\r\n\
-         Add-Type -AssemblyName System.Drawing\r\n\
-         $icon = [System.Drawing.Icon]::ExtractAssociatedIcon('{exe}')\r\n\
-         if ($icon) {{\r\n\
-           $bmp = $icon.ToBitmap()\r\n\
-           $bmp.Save('{png}', [System.Drawing.Imaging.ImageFormat]::Png)\r\n\
-           Write-Output 'OK'\r\n\
-         }} else {{\r\n\
-           Write-Output 'FAIL'\r\n\
-         }}",
-        exe = exe_path.replace('\'', "''"),
-        png = tmp_png.to_string_lossy().replace('\'', "''"),
-    );
-    let _ = std::fs::write(&tmp_ps1, &ps_content);
-
-    let output = hidden_command("powershell")
-        .args([
-            "-NoProfile",
-            "-NonInteractive",
-            "-ExecutionPolicy",
-            "Bypass",
-            "-File",
-            &tmp_ps1.to_string_lossy(),
-        ])
-        .output()
-        .ok()?;
-
-    // 清理脚本文件
-    let _ = std::fs::remove_file(&tmp_ps1);
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    if !output.status.success() || !stdout.contains("OK") {
-        let _ = std::fs::remove_file(&tmp_png);
-        return None;
-    }
-
-    // 读取 PNG 文件并转 base64
-    let png_data = std::fs::read(&tmp_png).ok()?;
+fn extract_windows_icon_data_url(exe_path: &str, _cache_key: &str) -> Option<String> {
+    // Windows 图标提取走 Rust 原生库，避免每个未缓存图标都启动 PowerShell 子进程。
+    // 这里传真实 exe 绝对路径；systemicons 在 Windows 下会从可执行文件资源里读取图标并返回 PNG bytes。
+    let png_data = systemicons::get_icon(exe_path, 32).ok()?;
     use base64::Engine;
     let b64 = base64::engine::general_purpose::STANDARD.encode(&png_data);
-    let _ = std::fs::remove_file(&tmp_png);
 
     Some(format!("data:image/png;base64,{}", b64))
 }
@@ -769,6 +761,25 @@ mod whoami {
 #[cfg(test)]
 mod scan_tests {
     use super::*;
+    #[test]
+    fn unresolved_ports_remain_visible_and_cannot_be_terminated() {
+        let service = build_unresolved_port_service(
+            port_scanner::PortInfo {
+                port: 8080,
+                protocol: "TCP".into(),
+                local_address: "127.0.0.1".into(),
+                state: "LISTEN".into(),
+                pid: 9999,
+            },
+            "permission denied",
+        );
+        assert_eq!(service.id, "TCP-8080-9999");
+        assert_eq!(service.service_name, "Unresolved");
+        assert!(!service.can_terminate);
+        assert!(matches!(service.safety_level, SafetyLevel::Danger));
+        assert!(service.safety_reason.contains("permission denied"));
+    }
+
     #[test]
     fn rejects_root_pid_before_executing_a_signal() {
         assert!(
