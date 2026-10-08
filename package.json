@@ -4,6 +4,7 @@
   "version": "0.2.8",
   "type": "module",
   "scripts": {
+    "test": "node --test tests/*.test.mjs",
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
@@ -12,6 +13,7 @@
     "tauri:build": "tauri build"
   },
   "dependencies": {
+    "@phosphor-icons/react": "2.1.10",
     "@tauri-apps/api": "^2",
     "@tauri-apps/plugin-process": "^2.3.1",
     "@tauri-apps/plugin-shell": "^2",

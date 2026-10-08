@@ -1,173 +1,74 @@
+import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { PortService } from "../types";
-import RiskBadge from "./RiskBadge";
+import type { PortService } from "../types";
 import SourceIcon from "./SourceIcon";
 import { useTranslation } from "../i18n";
+import { CaretUpIcon, CheckIcon, CopyIcon, StopIcon } from "./icons";
 
 interface Props {
   service: PortService;
+  disabled: boolean;
+  terminating: boolean;
   onKill: () => void;
   onClose: () => void;
 }
 
-export default function ServiceDetail({ service, onKill, onClose }: Props) {
+export default function ServiceDetail({service, disabled, terminating, onKill, onClose}: Props) {
   const { t } = useTranslation();
+  const [advanced, setAdvanced] = useState(false);
+  const [feedback, setFeedback] = useState<string | null>(null);
+  const feedbackTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => { if (feedbackTimer.current) clearTimeout(feedbackTimer.current); }, []);
+  const dangerous = service.safety_level === "danger";
+  const advancedId = "process-info-" + service.id;
 
-  const shortCwd = service.cwd
-    ? service.cwd.replace(/^\/Users\/[^/]+/, "~")
-    : "";
-
-  const handleOpenPath = async (path: string) => {
+  const openPath = async (path: string) => {
+    try { await invoke("open_directory", {path}); }
+    catch (error) { setFeedback(t("serviceDetail.pathFailed") + " " + String(error)); }
+  };
+  const copyCommand = async () => {
+    if (feedbackTimer.current) clearTimeout(feedbackTimer.current);
     try {
-      await invoke("open_directory", { path });
-    } catch (e) {
-      console.error("打开目录失败:", e);
-    }
+      await navigator.clipboard.writeText(service.command_line);
+      setFeedback(t("serviceDetail.copied"));
+    } catch { setFeedback(t("serviceDetail.copyFailed")); }
+    feedbackTimer.current = setTimeout(() => setFeedback(null), 2500);
   };
 
-  return (
-    <div className="detail-panel">
-      <div className="detail-header">
-        <h3>{t("serviceDetail.title", { port: service.port })}</h3>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <RiskBadge level={service.safety_level} />
-          <button className="btn btn-icon detail-close" onClick={onClose} title={t("common.close")}>
-            &#10005;
-          </button>
-        </div>
+  return <section className="inline-inspector" aria-label={t("serviceDetail.title", {port: service.port})}>
+    <div className="inspector-main">
+      <dl className="inspector-facts">
+        <dt>{t("portTable.projectDirectory")}</dt>
+        <dd>{service.cwd ? <button className="text-path" title={service.cwd} onClick={() => void openPath(service.cwd)}>{service.cwd}</button> : t("portTable.unknownProject")}</dd>
+        <dt>{t("serviceDetail.processPid")}</dt><dd className="mono">{service.pid}</dd>
+        <dt>{t("serviceDetail.field.protocol")}</dt><dd>{service.protocol}</dd>
+        <dt>{t("serviceDetail.field.address")}</dt><dd className="mono">{service.local_address}</dd>
+      </dl>
+      <div className="inspector-command">
+        <dl className="inspector-facts">
+          <dt>{t("serviceDetail.launchSource")}</dt><dd className="source-cell"><SourceIcon source={service.source} executablePath={service.executable_path} size={16} />{service.source}</dd>
+          <dt>{t("serviceDetail.field.command")}</dt>
+          <dd className="command-box"><code>{service.command_line || t("serviceDetail.unavailable")}</code>
+            <button className="icon-button" aria-label={t("serviceDetail.copyCommand")} disabled={!service.command_line} onClick={() => void copyCommand()}>{feedback === t("serviceDetail.copied") ? <CheckIcon size={16} /> : <CopyIcon size={16} />}</button>
+          </dd>
+        </dl>
+        {feedback && <p className="inspector-feedback" role="status">{feedback}</p>}
       </div>
-
-      <div className="detail-section">
-        <h4>{t("serviceDetail.section.basicInfo")}</h4>
-        <div className="detail-row">
-          <span className="detail-label">{t("serviceDetail.field.port")}</span>
-          <span className="detail-value">{service.port}</span>
-        </div>
-        <div className="detail-row">
-          <span className="detail-label">{t("serviceDetail.field.protocol")}</span>
-          <span className="detail-value">{service.protocol}</span>
-        </div>
-        <div className="detail-row">
-          <span className="detail-label">{t("serviceDetail.field.address")}</span>
-          <span className="detail-value">{service.local_address}</span>
-        </div>
-        <div className="detail-row">
-          <span className="detail-label">{t("serviceDetail.field.state")}</span>
-          <span className="detail-value">{service.state}</span>
-        </div>
-        <div className="detail-row">
-          <span className="detail-label">{t("serviceDetail.field.pid")}</span>
-          <span className="detail-value">{service.pid}</span>
-        </div>
-        <div className="detail-row">
-          <span className="detail-label">{t("serviceDetail.field.user")}</span>
-          <span className="detail-value">{service.user}</span>
-        </div>
+      <div className="inspector-actions">
+        <button className="stop-process" disabled={disabled || dangerous} title={dangerous ? service.safety_reason : undefined} onClick={onKill}><StopIcon size={17} />{dangerous ? t("common.forbidden") : terminating ? t("app.batchKilling") : t("serviceDetail.terminateProcess")}</button>
+        <p>{dangerous ? service.safety_reason : t("serviceDetail.processScope")}</p>
+        <div className="inspector-links"><button aria-expanded={advanced} aria-controls={advancedId} onClick={() => setAdvanced(!advanced)}>{t("serviceDetail.moreInfo")}</button><button onClick={onClose} aria-label={t("serviceDetail.collapse")}><CaretUpIcon size={13} />{t("serviceDetail.collapse")}</button></div>
       </div>
-
-      <div className="detail-section">
-        <h4>{t("serviceDetail.section.processInfo")}</h4>
-        <div className="detail-row">
-          <span className="detail-label">{t("serviceDetail.field.processName")}</span>
-          <span className="detail-value">{service.process_name}</span>
-        </div>
-        {service.executable_path && (
-          <div className="detail-row">
-            <span className="detail-label">{t("serviceDetail.field.executable")}</span>
-            <span
-              className="detail-value long clickable-path"
-              title={t("serviceDetail.openDirTitle")}
-              onClick={() => handleOpenPath(service.executable_path)}
-            >
-              {service.executable_path}
-            </span>
-          </div>
-        )}
-        <div className="detail-row">
-          <span className="detail-label">{t("serviceDetail.field.command")}</span>
-          <span className="detail-value long">{service.command_line}</span>
-        </div>
-        {shortCwd && (
-          <div className="detail-row">
-            <span className="detail-label">{t("serviceDetail.field.workDir")}</span>
-            <span
-              className="detail-value long clickable-path"
-              title={t("serviceDetail.openDirTitle2")}
-              onClick={() => handleOpenPath(service.cwd)}
-            >
-              {shortCwd}
-            </span>
-          </div>
-        )}
-      </div>
-
-      <div className="detail-section">
-        <h4>{t("serviceDetail.section.sourceInfo")}</h4>
-        <div className="detail-row">
-          <span className="detail-label">{t("serviceDetail.field.source")}</span>
-          <span className="detail-value">
-            <SourceIcon source={service.source} size={16} />{service.source}
-          </span>
-        </div>
-        {service.parent_chain.length > 0 && (
-          <div style={{ marginTop: 6 }}>
-            <span className="detail-label">{t("serviceDetail.field.processChain")}</span>
-            <div className="process-tree">
-              {service.parent_chain.map((node, i) => {
-                const isLast = i === service.parent_chain.length - 1;
-                return (
-                  <div key={node.pid} className="tree-node" style={{ paddingLeft: i * 16 }}>
-                    <span className="tree-connector">{i === 0 ? "●" : isLast ? "└─" : "├─"}</span>
-                    <span className="tree-name" title={node.command_line}>
-                      {node.name}
-                    </span>
-                    <span className="tree-pid">({node.pid})</span>
-                  </div>
-                );
-              })}
-              {/* 当前进程 */}
-              <div className="tree-node current" style={{ paddingLeft: service.parent_chain.length * 16 }}>
-                <span className="tree-connector">└─</span>
-                <span className="tree-name">{service.process_name}</span>
-                <span className="tree-pid">({service.pid})</span>
-                <span className="tree-current-badge">← {t("serviceDetail.currentProcess")}</span>
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
-
-      <div className="detail-section">
-        <h4>{t("serviceDetail.section.security")}</h4>
-        <div className="detail-row">
-          <span className="detail-label">{t("serviceDetail.field.serviceType")}</span>
-          <span className="detail-value">
-            <span className="badge badge-service">
-              {service.service_name || service.service_type}
-            </span>
-          </span>
-        </div>
-        <div className="detail-row">
-          <span className="detail-label">{t("serviceDetail.field.riskLevel")}</span>
-          <span className="detail-value">
-            <RiskBadge level={service.safety_level} />
-          </span>
-        </div>
-        <div className="detail-row">
-          <span className="detail-label">{t("serviceDetail.field.basis")}</span>
-          <span className="detail-value long" style={{ color: "var(--text-dim)" }}>
-            {service.safety_reason}
-          </span>
-        </div>
-      </div>
-
-      {service.can_terminate && (
-        <div style={{ marginTop: 16 }}>
-          <button className="btn btn-danger" onClick={onKill} style={{ width: "100%" }}>
-            {t("serviceDetail.terminateService")}
-          </button>
-        </div>
-      )}
     </div>
-  );
+    {advanced && <div id={advancedId} className="inspector-advanced">
+      <dl className="inspector-facts">
+        <dt>{t("serviceDetail.field.executable")}</dt><dd>{service.executable_path ? <button className="text-path" onClick={() => void openPath(service.executable_path)}>{service.executable_path}</button> : t("serviceDetail.unavailable")}</dd>
+        <dt>{t("serviceDetail.field.state")}</dt><dd>{service.state}</dd>
+        <dt>{t("serviceDetail.field.user")}</dt><dd>{service.user || t("serviceDetail.unavailable")}</dd>
+        <dt>{t("serviceDetail.field.serviceType")}</dt><dd>{service.service_name || service.service_type}</dd>
+        <dt>{t("serviceDetail.field.basis")}</dt><dd>{service.safety_reason}</dd>
+      </dl>
+      {service.parent_chain.length > 0 && <div><h4>{t("serviceDetail.field.processChain")}</h4><ol className="inspector-process-chain">{service.parent_chain.map((node) => <li key={node.pid} title={node.command_line}><span>{node.name}</span><span className="mono">PID {node.pid}</span>{node.pid === service.pid && <small>{t("serviceDetail.currentProcess")}</small>}</li>)}</ol></div>}
+    </div>}
+  </section>;
 }

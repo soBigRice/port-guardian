@@ -68,7 +68,9 @@ Port Guardian 将这一切自动化：**扫描 → 识别 → 分类 → 评估�
 ### 🎨 UI 特性
 - **搜索过滤**：按端口号、进程名、命令、目录、服务名、来源等关键词搜索
 - **快速筛选**：一键按风险等级或服务类型筛选
-- **详情面板**：点击任一端口条目，右侧展开完整进程信息
+- **项目分组**：按真实工作目录分组，可折叠项目或切换平铺列表
+- **行内详情**：原位置查看目录、地址、命令，复制命令或展开进程链
+- **显示选项**：TCP/UDP 快速切换；风险、类型、排序及详细技术列收纳在筛选菜单
 - **主题切换**：支持 🌞 亮色 / 🌙 暗色 / 💻 跟随系统 三种主题
 - **终止模式**：支持 SIGTERM（优雅终止）和 SIGKILL（强制终止）
 
@@ -76,25 +78,9 @@ Port Guardian 将这一切自动化：**扫描 → 识别 → 分类 → 评估�
 
 ## 🖼️ 界面预览
 
-> 启动后，Port Guardian 会自动扫描并展示所有监听端口：
+> 项目工作区预览，使用演示扫描数据；桌面应用实际显示本机服务。
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│  🛡️ Port Guardian                              [⚙️] [🔄]       │
-├─────────────────────────────────────────────────────────────────┤
-│  🔍 搜索端口、进程、服务...                                      │
-│  [🟢 开发] [🤖 AI] [🗄️ 数据库] [🐳 Docker] [⚙️ 系统]            │
-├─────────────────────────────────────────────────────────────────┤
-│  端口  │ 服务名称      │ 进程名    │ 来源       │ 风险  │ 操作   │
-│  3000  │ Vite          │ node      │ Cursor     │ 🟢   │ [终止] │
-│  5432  │ PostgreSQL    │ postgres  │ Terminal   │ 🟡   │ [终止] │
-│  8080  │ Next.js       │ node      │ VSCode     │ 🟢   │ [终止] │
-│  6379  │ Redis         │ redis-srv │ Docker     │ 🟡   │ [终止] │
-│  5000  │ AirDrop       │ launchd   │ System     │ 🔴   │ [禁止] │
-├─────────────────────────────────────────────────────────────────┤
-│                                              详情面板 →         │
-└─────────────────────────────────────────────────────────────────┘
-```
+![项目工作区](docs/design/project-workspace-implemented.png)
 
 ---
 
@@ -110,7 +96,7 @@ port-guardian/
 │   └── components/
 │       ├── PortTable.tsx         # 端口列表表格
 │       ├── SearchBar.tsx         # 搜索栏
-│       ├── ServiceDetail.tsx     # 服务详情侧边面板
+│       ├── ServiceDetail.tsx     # 行内服务详情与进程链
 │       ├── ConfirmKillDialog.tsx # 终止确认对话框
 │       ├── RiskBadge.tsx         # 风险等级徽章
 │       └── Settings.tsx          # 设置对话框（主题切换）
@@ -120,7 +106,7 @@ port-guardian/
     │   ├── main.rs               # Rust 入口
     │   ├── lib.rs                # Tauri 应用构建 & 命令注册
     │   ├── commands.rs           # Tauri IPC 命令
-    │   ├── port_scanner.rs       # 端口扫描（lsof）
+    │   ├── port_scanner.rs       # TCP/UDP 扫描（netstat2）
     │   ├── process_resolver.rs   # 进程信息解析（ps + lsof）
     │   ├── process_tree.rs       # 进程树溯源
     │   ├── service_classifier.rs # 服务分类引擎
@@ -132,27 +118,27 @@ port-guardian/
 
 ### 数据流
 
+扫描、刷新完整性、分类与终止的实现约束及验证记录见 [端口扫描逻辑说明](docs/port-scanning.md)。
+
 ```mermaid
 flowchart TD
-  User["用户打开应用 / 手动刷新 / 静默轮询"] --> App["React App.tsx"]
-  App -->|"invoke scan_ports_stream"| Commands["Tauri commands.rs"]
-  Commands --> Scanner["port_scanner.rs<br/>netstat2 扫描 TCP/UDP"]
-  Scanner --> Resolver["process_resolver.rs<br/>解析 PID、命令、目录"]
-  Resolver --> Classifier["service_classifier + safety_checker<br/>分类与风险判断"]
-  Classifier --> Events["scan-start / port-found / scan-complete"]
-  Events --> Pending["pendingServicesRef<br/>缓存本轮扫描结果"]
-  Events --> Complete["scan-complete 正常收尾"]
-  App --> Watchdog["30 秒 watchdog<br/>兜底事件丢失或扫描卡住"]
-  Complete --> Finish["finishScanRef"]
-  Watchdog --> Finish
-  Pending --> Dedupe["按 protocol-port-pid id 去重"]
-  Finish -->|"首屏流式 flush"| Dedupe
-  Finish -->|"后续刷新完成后 diff"| Dedupe
-  Dedupe --> Services["services state"]
-  Services --> Polling["首扫完成后开启 10 秒静默轮询"]
-  Polling --> App
-  Services --> Table["PortTable 渲染端口列表"]
-  Table -->|"终止进程"| Terminator["terminate_process / kill"]
+  User["打开应用 / 刷新 / 可见窗口轮询"] --> Hook["usePortScan<br/>等待监听就绪，创建 scanId"]
+  Hook -->|"invoke scan_ports_stream"| Commands["commands.rs<br/>阻塞工作线程 / 后端扫描互斥"]
+  Commands --> Scanner["port_scanner<br/>TCP LISTEN + UDP 绑定 / 保留多地址"]
+  Scanner --> Resolver["本轮按 PID 缓存解析与溯源"]
+  Resolver --> Classifier["分类与风险判断"]
+  Classifier -->|"带 scan_id 的进度和条目事件"| Stream["首屏 150 ms 批量显示"]
+  Classifier -->|"完整 ScanResult 命令返回值"| Merge["mergeScannedServices"]
+  Stream --> List["services"]
+  Merge -->|"完整快照更新字段及移除消失条目"| List
+  Hook -->|"失败 / 30 秒超时"| Error["保留现有列表 / 显示错误"]
+  Merge -->|"部分扫描"| Partial["只更新收到条目 / 保留未核实旧条目"]
+  Partial --> List
+  List --> Table["PortTable / ServiceDetail"]
+  Table --> Confirm["单条或批量确认 / 按 PID 去重"]
+  Confirm --> Terminate["复核归属与身份 / 等待实际退出"]
+  Terminate --> Rescan["移除同 PID 全部行 / 复扫核实端口"]
+  Rescan --> Hook
 ```
 
 ---
@@ -408,6 +394,14 @@ npm run tauri build
 - 影响范围：影响列表进程名、详情面板启动命令、进程链展示和搜索体验；不影响终止进程使用的 PID。
 - 解决方案：后端解析进程信息时，优先用真实可执行文件路径推导进程名，其次用命令行首个可执行项，最后才使用 `comm` 字段；同时把命令行中的合法 `%HH` 序列按 UTF-8 解码，进程树解析同步复用相同清洗规则。
 - 后续注意点：命令行展示问题优先查 `process_resolver.rs` / `process_tree.rs` 的系统输出解析，不要只改前端样式；新增展示字段时要区分真实 PID/路径数据和用户可读展示文本。
+
+#### 2026-10-08：扫描数据与刷新体验修复
+
+- macOS 工作目录全空来自手写系统结构体尺寸错误，已改用现有 `libc` 的系统类型。
+- 刷新改用带扫描 ID 的完整命令快照收尾；同 ID 字段会更新，失败与部分扫描不删除未核实旧条目，详情和选择保留。
+- 合并多监听地址，移除仅凭端口的数据库/基础设施身份推断；补齐精确查询、协议筛选、稳定排序和扫描反馈。
+- 批量先确认并按 PID 去重；普通终止不自动强杀，后端复核目标并等待实际退出，再清理该 PID 全部端口行。
+- 自动回归、验证边界与后续优先检查项统一维护在 [端口扫描逻辑说明](docs/port-scanning.md)；桌面主观体验及 Windows 实机仍待验收。
 
 ---
 

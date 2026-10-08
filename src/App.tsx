@@ -1,20 +1,21 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
 import { getVersion } from "@tauri-apps/api/app";
 import { check, type Update } from "@tauri-apps/plugin-updater";
-import { PortService, Theme } from "./types";
+import { PortService, Theme, TerminateResult } from "./types";
+import { usePortScan, isTauriRuntime } from "./hooks/usePortScan";
+import { groupServices, matchesSearch, sortServices, uniqueProcesses, type SortKey } from "./utils/scanState";
+import ConfirmBatchKillDialog from "./components/ConfirmBatchKillDialog";
 import PortTable from "./components/PortTable";
-import ServiceDetail from "./components/ServiceDetail";
 import ConfirmKillDialog from "./components/ConfirmKillDialog";
 import SearchBar from "./components/SearchBar";
 import Settings from "./components/Settings";
 import UpdateChecker from "./components/UpdateChecker";
 import { formatUpdateError } from "./utils/updateErrors";
 import { useTranslation } from "./i18n";
+import { CircleIcon, CloseIcon, ExportIcon, FilterIcon, ListIcon, RefreshIcon, SettingsIcon, StopIcon } from "./components/icons";
 
 const FALLBACK_VERSION = "0.1.0";
-const SCAN_WATCHDOG_MS = 30000;
 
 type FilterKey =
   | "all"
@@ -47,23 +48,10 @@ function matchesFilter(service: PortService, filter: FilterKey) {
   }
 }
 
-function matchesSearch(service: PortService, query: string) {
-  if (!query) return true;
-  const q = query.toLowerCase();
-  return (
-    service.port.toString().includes(q) ||
-    service.process_name.toLowerCase().includes(q) ||
-    service.command_line.toLowerCase().includes(q) ||
-    service.cwd.toLowerCase().includes(q) ||
-    service.service_name.toLowerCase().includes(q) ||
-    service.source.toLowerCase().includes(q)
-  );
-}
-
 function getInitialTheme(): Theme {
   const saved = localStorage.getItem("pg-theme") as Theme;
   if (saved && ["dark", "light", "auto"].includes(saved)) return saved;
-  return "dark";
+  return "light";
 }
 
 function applyTheme(theme: Theme) {
@@ -74,54 +62,6 @@ function applyTheme(theme: Theme) {
   } else {
     root.setAttribute("data-theme", theme);
   }
-}
-
-// 按服务 id 保留首个结果，避免同一轮扫描或 React 状态合并时出现重复行。
-function dedupeServicesById(services: PortService[]) {
-  const seen = new Set<string>();
-  const unique: PortService[] = [];
-
-  for (const service of services) {
-    if (seen.has(service.id)) continue;
-    seen.add(service.id);
-    unique.push(service);
-  }
-
-  return unique;
-}
-
-// 流式扫描期间追加 pending 结果；这里再次按 id 去重，防止异步刷新时机把旧结果重复塞回列表。
-function appendUniqueServices(prev: PortService[], incoming: PortService[]) {
-  const merged = dedupeServicesById([...prev, ...incoming]);
-  return merged.length === prev.length ? prev : merged;
-}
-
-// 非流式刷新完成后按最新扫描结果做 diff，同时清理历史 state 中已经存在的重复 id。
-function mergeScannedServices(prev: PortService[], scanned: PortService[]) {
-  const uniqueScanned = dedupeServicesById(scanned);
-  const scannedIds = new Set(uniqueScanned.map((service) => service.id));
-  const scannedIdStr = [...scannedIds].sort().join(",");
-  const prevIds = new Set(prev.map((service) => service.id));
-  const prevIdStr = [...prevIds].sort().join(",");
-
-  if (prev.length === prevIds.size && prevIdStr === scannedIdStr) return prev;
-
-  const merged: PortService[] = [];
-  const keptIds = new Set<string>();
-
-  for (const service of prev) {
-    if (!scannedIds.has(service.id) || keptIds.has(service.id)) continue;
-    keptIds.add(service.id);
-    merged.push(service);
-  }
-
-  for (const service of uniqueScanned) {
-    if (keptIds.has(service.id)) continue;
-    keptIds.add(service.id);
-    merged.push(service);
-  }
-
-  return merged;
 }
 
 function App() {
@@ -140,9 +80,8 @@ function App() {
     { key: "system-service", label: t("app.filter.system") },
     { key: "app-service", label: t("app.filter.app") },
   ], [t]);
-  const [services, setServices] = useState<PortService[]>([]);
+  const { services, loading, scanning, scanTotal, scannedCount, lastRefresh, durationMs, issue, refresh, removeProcess } = usePortScan();
   const [selected, setSelected] = useState<PortService | null>(null);
-  const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<FilterKey>("all");
   const [killTarget, setKillTarget] = useState<PortService | null>(null);
@@ -154,25 +93,21 @@ function App() {
       return saved ? new Set(JSON.parse(saved)) : new Set();
     } catch { return new Set(); }
   });
-  const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
   const [showSettings, setShowSettings] = useState(false);
   const [theme, setTheme] = useState<Theme>(getInitialTheme);
   const [appVersion, setAppVersion] = useState(FALLBACK_VERSION);
   const [updateInfo, setUpdateInfo] = useState<Update | null>(null);
   const [updateError, setUpdateError] = useState<string | null>(null);
   const [showUpdate, setShowUpdate] = useState(false);
-  const [scanTotal, setScanTotal] = useState(0);
-  const [scannedCount, setScannedCount] = useState(0);
-  const [initialScanSettled, setInitialScanSettled] = useState(false);
-  const rowClickedRef = useRef(false);
-  const pendingServicesRef = useRef<PortService[]>([]);
-  const seenServiceIdsRef = useRef<Set<string>>(new Set());
-  const scanInFlightRef = useRef(false);
-  const scanTotalRef = useRef(0);
-  const flushTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const scanWatchdogTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const initialScanSettledRef = useRef(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const [protocolFilter, setProtocolFilter] = useState("all");
+  const [sort, setSort] = useState<SortKey>("port");
+  const [showTechnicalColumns, setShowTechnicalColumns] = useState(false);
+  const [byProject, setByProject] = useState(true);
+  const [showBatchConfirm, setShowBatchConfirm] = useState(false);
+  const [terminatingPid, setTerminatingPid] = useState<number | null>(null);
+  const [actionNotice, setActionNotice] = useState<string | null>(null);
+  const operationRef = useRef(false);
 
   // 持久化收藏端口
   useEffect(() => {
@@ -193,9 +128,20 @@ function App() {
     }
   }, [theme]);
 
+  useEffect(() => {
+    const dismissMenus = (event: PointerEvent) => {
+      const targetMenu = event.target instanceof Element ? event.target.closest(".workspace-menu") : null;
+      document.querySelectorAll<HTMLDetailsElement>(".workspace-menu[open]").forEach((menu) => {
+        if (menu !== targetMenu) menu.open = false;
+      });
+    };
+    document.addEventListener("pointerdown", dismissMenus);
+    return () => document.removeEventListener("pointerdown", dismissMenus);
+  }, []);
+
   // 从 Tauri 读取真实应用版本，避免界面版本号写死
   useEffect(() => {
-    if (!(window as any).__TAURI_INTERNALS__) return;
+    if (!isTauriRuntime()) return;
     (async () => {
       try {
         const runtimeVersion = await getVersion();
@@ -206,241 +152,25 @@ function App() {
     })();
   }, []);
 
-  // 将 pendingServices flush 到 state（扫描期间定时批量更新）
-  // 用 ref 包一层，避免 useCallback 依赖导致 useEffect 重新订阅
-  const flushPendingRef = useRef<() => void>(() => {});
-  flushPendingRef.current = () => {
-    const pending = dedupeServicesById(pendingServicesRef.current);
-    if (pending.length > 0) {
-      pendingServicesRef.current = [];
-      setServices((prev) => appendUniqueServices(prev, pending));
-      setScannedCount((prev) => {
-        const next = prev + pending.length;
-        return scanTotalRef.current > 0 ? Math.min(next, scanTotalRef.current) : next;
-      });
-    }
-  };
-
-  // 是否为静默模式（由 refresh(silent) 控制）
-  const silentScanRef = useRef(false);
-  // 本轮扫描是否需要流式 flush（仅首次加载为 true，后续为 false）
-  const streamFlushRef = useRef(true);
-  // 当前扫描是否真的在流式写入列表；避免启动后切换模式影响本轮扫描判断。
-  const activeStreamFlushRef = useRef(false);
-
-  const finishScanRef = useRef<(completed?: boolean) => void>(() => {});
-  finishScanRef.current = (completed = true) => {
-    if (flushTimerRef.current) {
-      clearInterval(flushTimerRef.current);
-      flushTimerRef.current = null;
-    }
-    if (scanWatchdogTimerRef.current) {
-      clearTimeout(scanWatchdogTimerRef.current);
-      scanWatchdogTimerRef.current = null;
-    }
-
-    const newResults = dedupeServicesById(pendingServicesRef.current);
-    const shouldStream = activeStreamFlushRef.current;
-
-    if (shouldStream) {
-      // 首次加载：把剩余的 pending 一次性 flush
-      flushPendingRef.current();
-    } else {
-      // 后续刷新 / 静默轮询：增量 diff，无变化不重绘
-      setServices((prev) => mergeScannedServices(prev, newResults));
-    }
-
-    pendingServicesRef.current = [];
-    scanInFlightRef.current = false;
-    silentScanRef.current = false;
-    activeStreamFlushRef.current = false;
-    setLoading(false);
-    if (completed) {
-      setLastRefresh(new Date());
-    }
-    if (!initialScanSettledRef.current) {
-      initialScanSettledRef.current = true;
-      setInitialScanSettled(true);
-    }
-  };
-
-  // 流式扫描：逐个接收端口结果
-  // silent=true 时静默刷新：不闪屏、不显示 loading，扫描完成后替换列表
-  const refresh = useCallback(async (silent = false) => {
-    if (!(window as any).__TAURI_INTERNALS__) return;
-    if (scanInFlightRef.current) {
-      if (!silent && activeStreamFlushRef.current) flushPendingRef.current();
-      return;
-    }
-
-    scanInFlightRef.current = true;
-    silentScanRef.current = silent;
-    const isStream = !silent && streamFlushRef.current;
-    activeStreamFlushRef.current = isStream;
-    // 清理上一轮扫描的 flush 定时器
-    if (flushTimerRef.current) {
-      clearInterval(flushTimerRef.current);
-      flushTimerRef.current = null;
-    }
-    if (scanWatchdogTimerRef.current) {
-      clearTimeout(scanWatchdogTimerRef.current);
-      scanWatchdogTimerRef.current = null;
-    }
-    pendingServicesRef.current = [];
-    seenServiceIdsRef.current = new Set();
-    scanTotalRef.current = 0;
-    if (!silent) {
-      if (isStream) {
-        setServices([]);
-      }
-      setSelected(null);
-      setKillTarget(null);
-      setSelectedIds(new Set());
-      setLoading(true);
-      setScanTotal(0);
-      setScannedCount(0);
-      // 首次加载完成后，后续刷新走 diff 模式
-      if (isStream) streamFlushRef.current = false;
-    }
-
-    // scan-complete 是正常收尾路径；watchdog 只兜底事件丢失或后端异常卡住的情况。
-    scanWatchdogTimerRef.current = setTimeout(() => {
-      if (scanInFlightRef.current) {
-        finishScanRef.current(false);
-      }
-    }, SCAN_WATCHDOG_MS);
-
-    try {
-      await invoke("scan_ports_stream");
-    } catch (err) {
-      console.error("扫描启动失败:", err);
-      if (scanInFlightRef.current) finishScanRef.current(false);
-      return;
-    }
-  }, []);
-
-  // 监听扫描事件
-  useEffect(() => {
-    if (!(window as any).__TAURI_INTERNALS__) return;
-
-    const unlistenPromise = Promise.all([
-      listen<number>("scan-start", (event) => {
-        if (!scanInFlightRef.current) return;
-        scanTotalRef.current = event.payload;
-        setScanTotal(event.payload);
-        setScannedCount(0);
-        // 仅首次加载启动 flush 定时器（流式填充）
-        // 后续刷新全程缓存到 ref，扫描结束后一次性 diff 替换
-        if (activeStreamFlushRef.current) {
-          if (flushTimerRef.current) clearInterval(flushTimerRef.current);
-          flushTimerRef.current = setInterval(() => flushPendingRef.current(), 150);
-        }
-      }),
-      listen<PortService>("port-found", (event) => {
-        if (!scanInFlightRef.current) return;
-        if (seenServiceIdsRef.current.has(event.payload.id)) return;
-        seenServiceIdsRef.current.add(event.payload.id);
-        pendingServicesRef.current.push(event.payload);
-        // 非流式模式（后续刷新），flush 定时器不跑，手动更新进度
-        if (!activeStreamFlushRef.current) {
-          setScannedCount((prev) => {
-            const next = prev + 1;
-            return scanTotalRef.current > 0 ? Math.min(next, scanTotalRef.current) : next;
-          });
-        }
-      }),
-      listen("scan-complete", () => {
-        if (!scanInFlightRef.current) return;
-        finishScanRef.current();
-      }),
-    ]);
-
-    return () => {
-      unlistenPromise.then(([u1, u2, u3]) => { u1(); u2(); u3(); });
-      if (flushTimerRef.current) {
-        clearInterval(flushTimerRef.current);
-        flushTimerRef.current = null;
-      }
-      if (scanWatchdogTimerRef.current) {
-        clearTimeout(scanWatchdogTimerRef.current);
-        scanWatchdogTimerRef.current = null;
-      }
-    };
-  }, []);
-
-  // 启动时自动扫描
-  useEffect(() => {
-    const timer = window.setTimeout(() => {
-      refresh();
-    }, 0);
-    return () => window.clearTimeout(timer);
-  }, [refresh]);
-
-  // 智能轮询：窗口可见时每 10 秒静默刷新，隐藏时暂停
-  useEffect(() => {
-    if (!initialScanSettled) return;
-
-    let pollTimer: ReturnType<typeof setInterval> | null = null;
-
-    const startPolling = (refreshImmediately = false) => {
-      if (pollTimer) return;
-      // 首次扫描完成后才开启轮询；重新获得焦点时再立即静默刷新一次。
-      if (refreshImmediately) refresh(true);
-      pollTimer = setInterval(() => refresh(true), 10000);
-    };
-
-    const stopPolling = () => {
-      if (pollTimer) {
-        clearInterval(pollTimer);
-        pollTimer = null;
-      }
-    };
-
-    const handleVisibility = () => {
-      if (document.visibilityState === "visible") {
-        startPolling(true);
-      } else {
-        stopPolling();
-      }
-    };
-    const handleFocus = () => startPolling(true);
-
-    // 页面可见性变化
-    document.addEventListener("visibilitychange", handleVisibility);
-    // 窗口焦点变化（兼容）
-    window.addEventListener("focus", handleFocus);
-    window.addEventListener("blur", stopPolling);
-
-    // 初始状态：如果可见就开始轮询
-    if (document.visibilityState === "visible") {
-      startPolling(false);
-    }
-
-    return () => {
-      stopPolling();
-      document.removeEventListener("visibilitychange", handleVisibility);
-      window.removeEventListener("focus", handleFocus);
-      window.removeEventListener("blur", stopPolling);
-    };
-  }, [refresh, initialScanSettled]);
-
   // 键盘快捷键
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement).tagName;
-      const isInput = tag === "INPUT" || tag === "TEXTAREA" || (e.target as HTMLElement).isContentEditable;
+      const isInput = ["INPUT", "TEXTAREA", "SELECT"].includes(tag) || (e.target as HTMLElement).isContentEditable;
 
       // Escape: 逐层关闭面板
       if (e.key === "Escape") {
-        if (killTarget) setKillTarget(null);
+        if (showBatchConfirm) setShowBatchConfirm(false);
+        else if (killTarget) setKillTarget(null);
         else if (showSettings) setShowSettings(false);
+        else if (document.querySelector(".workspace-menu[open]")) document.querySelectorAll<HTMLDetailsElement>(".workspace-menu[open]").forEach((menu) => { menu.open = false; });
         else if (selected) setSelected(null);
         else if (isInput) (e.target as HTMLElement).blur();
         return;
       }
 
-      // 以下快捷键仅在非输入状态生效
-      if (isInput) return;
+      // 弹窗接管键盘；不让方向键和终止快捷键操作背后的列表。
+      if (isInput || killTarget || showBatchConfirm || showSettings || document.querySelector(".workspace-menu[open]")) return;
 
       // R / F5 → 刷新
       if (e.key === "r" || e.key === "F5") {
@@ -459,7 +189,7 @@ function App() {
       // ↑ / ↓ → 切换选中行
       if (e.key === "ArrowDown" || e.key === "ArrowUp") {
         e.preventDefault();
-        const visible = services.filter((s) => matchesSearch(s, search) && matchesFilter(s, filter));
+        const visible = groupServices(sortServices(services.filter((s) => matchesSearch(s, search) && matchesFilter(s, filter) && (protocolFilter === "all" || s.protocol === protocolFilter)), bookmarkedPorts, sort), byProject).flatMap((group) => group.services);
         if (visible.length === 0) return;
 
         const idx = selected ? visible.findIndex((s) => s.id === selected.id) : -1;
@@ -474,7 +204,7 @@ function App() {
       }
 
       // K / Delete → 终止选中服务
-      if ((e.key === "k" || e.key === "Delete") && selected) {
+      if ((e.key === "k" || e.key === "Delete") && selected && !operationRef.current) {
         e.preventDefault();
         setKillTarget(selected);
         return;
@@ -491,7 +221,7 @@ function App() {
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [selected, killTarget, showSettings, search, filter, refresh]);
+  }, [selected, killTarget, showSettings, showBatchConfirm, search, filter, refresh, protocolFilter, bookmarkedPorts, sort, byProject, FILTER_OPTIONS]);
 
   // 切换收藏
   const toggleBookmark = (port: number) => {
@@ -503,73 +233,48 @@ function App() {
     });
   };
 
-  const filtered = useMemo(() => {
-    const list = services.filter((service) => matchesSearch(service, search) && matchesFilter(service, filter));
-    // 收藏端口置顶
-    return [...list].sort((a, b) => {
-      const aBk = bookmarkedPorts.has(a.port) ? 0 : 1;
-      const bBk = bookmarkedPorts.has(b.port) ? 0 : 1;
-      return aBk - bBk;
-    });
-  }, [services, search, filter, bookmarkedPorts]);
+  const filtered = useMemo(() => sortServices(
+    services.filter((service) => matchesSearch(service, search) && matchesFilter(service, filter)
+      && (protocolFilter === "all" || service.protocol === protocolFilter)), bookmarkedPorts, sort,
+  ), [services, search, filter, protocolFilter, bookmarkedPorts, sort]);
 
   useEffect(() => {
-    if (selected && !filtered.some((service) => service.id === selected.id)) {
-      setSelected(null);
-    }
-  }, [filtered, selected]);
+    setSelected((current) => current ? filtered.find((service) => service.id === current.id) ?? null : null);
+    setKillTarget((current) => current ? services.find((service) => service.id === current.id) ?? null : null);
+    setSelectedIds((prev) => {
+      const valid = new Set(services.filter((service) => service.can_terminate).map((service) => service.id));
+      const next = new Set([...prev].filter((id) => valid.has(id)));
+      return next.size === prev.size ? prev : next;
+    });
+  }, [filtered, services]);
 
-  const handleSearchChange = (value: string) => {
-    if (scanInFlightRef.current && activeStreamFlushRef.current) flushPendingRef.current();
-    setSearch(value);
-  };
-
-  const handleFilterChange = (nextFilter: FilterKey) => {
-    if (scanInFlightRef.current && activeStreamFlushRef.current) flushPendingRef.current();
-    setFilter(nextFilter);
-  };
-
+  const handleSearchChange = (value: string) => setSearch(value);
+  const handleFilterChange = (nextFilter: FilterKey) => setFilter(nextFilter);
+  const terminateService = (service: PortService, force: boolean) => invoke<TerminateResult>("terminate_process", {
+    pid: service.pid, force, port: service.port, protocol: service.protocol,
+    expectedExecutablePath: service.executable_path, expectedCommandLine: service.command_line,
+  });
   const handleKill = async (service: PortService, force: boolean) => {
+    if (operationRef.current) return;
+    operationRef.current = true;
     setKillTarget(null);
-
+    setTerminatingPid(service.pid);
+    setActionNotice(null);
     try {
-      const result = await invoke<{
-        success: boolean;
-        message: string;
-        port_released: boolean;
-      }>("terminate_process", { pid: service.pid, force });
-
-      if (!result.success) {
-        alert(result.message);
-        return;
+      const result = await terminateService(service, force);
+      if (result.success) {
+        removeProcess(service.pid);
+        setActionNotice(t(result.port_released ? "app.processExited" : "app.portStillOccupied", {pid: service.pid, port: service.port}));
+      } else {
+        setActionNotice(`${t("app.terminateFailed")} ${result.message}`);
+        void refresh(true);
       }
-
-      if (result.port_released) {
-        // 端口已释放，从列表移除
-        setServices((prev) => prev.filter((s) => s.id !== service.id));
-        setSelected((prev) => (prev?.id === service.id ? null : prev));
-        return;
-      }
-
-      // 进程已退出但端口可能仍处于 TIME_WAIT，轮询等待端口释放
-      const maxRetries = 30; // 最多等 3 秒
-      for (let i = 0; i < maxRetries; i++) {
-        await new Promise((r) => setTimeout(r, 100));
-        const listening = await invoke<boolean>("check_port_listening", {
-          port: service.port,
-        });
-        if (!listening) {
-          // 端口已释放，从列表移除
-          setServices((prev) => prev.filter((s) => s.id !== service.id));
-          setSelected((prev) => (prev?.id === service.id ? null : prev));
-          return;
-        }
-      }
-
-      // 超时仍未释放，刷新列表获取最新状态
-      refresh();
-    } catch (err) {
-      alert(`${t("app.terminateFailed")} ${err}`);
+    } catch (error) {
+      setActionNotice(`${t("app.terminateFailed")} ${String(error)}`);
+      void refresh(true);
+    } finally {
+      operationRef.current = false;
+      setTerminatingPid(null);
     }
   };
 
@@ -594,43 +299,36 @@ function App() {
     }
   };
 
-  // 批量终止
-  const handleBatchKill = async () => {
-    const targets = services.filter((s) => selectedIds.has(s.id) && s.can_terminate);
-    if (targets.length === 0) return;
-
+  const batchTargets = uniqueProcesses(services.filter((service) => selectedIds.has(service.id) && service.can_terminate));
+  const handleBatchKill = async (force: boolean) => {
+    if (operationRef.current) return;
+    const targets = batchTargets;
+    setShowBatchConfirm(false);
+    if (!targets.length) return;
+    operationRef.current = true;
     setBatchKilling(true);
+    setActionNotice(null);
     let successCount = 0;
-
-    for (const svc of targets) {
+    const failures: string[] = [];
+    for (const service of targets) {
+      setTerminatingPid(service.pid);
       try {
-        const result = await invoke<{
-          success: boolean;
-          message: string;
-          port_released: boolean;
-        }>("terminate_process", { pid: svc.pid, force: true });
-
-        if (result.success) {
-          successCount++;
-          setServices((prev) => prev.filter((s) => s.id !== svc.id));
-        }
-      } catch {
-        // 单个失败不影响其他
-      }
+        const result = await terminateService(service, force);
+        if (result.success) { successCount++; removeProcess(service.pid); }
+        else failures.push(`${service.port}: ${result.message}`);
+      } catch (error) { failures.push(`${service.port}: ${String(error)}`); }
     }
-
     setSelectedIds(new Set());
-    setSelected(null);
     setBatchKilling(false);
-
-    // 如果有失败的，刷新列表
-    if (successCount < targets.length) {
-      refresh();
-    }
+    setTerminatingPid(null);
+    operationRef.current = false;
+    setActionNotice(`${t("app.batchResult", {success: successCount, failed: failures.length})}${failures.length ? ` · ${failures.join("; ")}` : ""}`);
+    void refresh(true, true);
   };
 
   // 导出端口列表
   const handleExport = (format: "csv" | "json") => {
+    document.querySelectorAll<HTMLDetailsElement>(".workspace-menu[open]").forEach((menu) => { menu.open = false; });
     const data = services.map((s) => ({
       port: s.port,
       protocol: s.protocol,
@@ -676,7 +374,7 @@ function App() {
   ).length;
   const dangerCount = services.filter((s) => s.safety_level === "danger").length;
 
-  const isTauri = !!(window as any).__TAURI_INTERNALS__;
+  const isTauri = isTauriRuntime();
 
   const handleCheckUpdate = useCallback(async () => {
     if (!isTauri) {
@@ -704,7 +402,7 @@ function App() {
   }, [isTauri]);
 
   return (
-    <div className="app">
+    <div className={`app workspace ${isTauri && /Mac/.test(navigator.platform) ? "native-mac" : ""}`}>
       {!isTauri && (
         <div style={{
           padding: "12px 20px",
@@ -717,121 +415,55 @@ function App() {
           {t("app.browserWarningBefore")} <code>npm run tauri dev</code> {t("app.browserWarningAfter")}
         </div>
       )}
-      <header className="header">
-        <div className="header-left">
-          <h1 className="title">Port Guardian</h1>
-          <span className="subtitle">v{appVersion}</span>
-        </div>
-        <div className="header-stats">
-          <span className="stat">
-            {t("app.stats.listeningPorts")} <strong>{services.length}</strong>
-          </span>
-          <span className="stat stat-safe">
-            {t("app.stats.safe")} <strong>{safeCount}</strong>
-          </span>
-          <span className="stat stat-caution">
-            {t("app.stats.caution")} <strong>{cautionCount}</strong>
-          </span>
-          {dangerCount > 0 && (
-            <span className="stat stat-danger">
-              {t("app.stats.danger")} <strong>{dangerCount}</strong>
-            </span>
-          )}
-        </div>
-        <div className="header-right">
-          {lastRefresh && (
-            <span className="refresh-time">
-              {lastRefresh.toLocaleTimeString()}
-            </span>
-          )}
-          <button className="btn btn-refresh" onClick={() => refresh()} disabled={loading}>
-            {loading ? t("common.scanning") : t("app.refresh")}
-          </button>
-          {services.length > 0 && (
-            <div className="export-dropdown">
-              <button className="btn btn-export">{t("app.export")} ▾</button>
-              <div className="export-menu">
-                <button onClick={() => handleExport("csv")}>CSV</button>
-                <button onClick={() => handleExport("json")}>JSON</button>
-              </div>
-            </div>
-          )}
-          <button
-            className="btn btn-icon"
-            onClick={() => setShowSettings(true)}
-            title={t("common.settings")}
-          >
-            &#9881;
-          </button>
+      <header className="workspace-header" data-tauri-drag-region>
+        <div className="workspace-brand" data-tauri-drag-region><h1 data-tauri-drag-region>Port Guardian</h1><span data-tauri-drag-region>{t("app.brandSubtitle")}</span></div>
+        <div className="workspace-header-actions">
+          {lastRefresh && <time className="workspace-update-time" dateTime={lastRefresh.toISOString()}>{lastRefresh.toLocaleString(undefined, {year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false})}</time>}
+          <button className="rescan-button" onClick={() => void refresh()} disabled={loading}><RefreshIcon size={18} className={scanning ? "spinning" : ""} />{loading ? t("common.scanning") : t("app.refresh")}</button>
+          {services.length > 0 && <details className="workspace-menu export-options"><summary className="icon-button" aria-label={t("app.export")} title={t("app.export")}><ExportIcon size={18} /></summary><div className="workspace-popover"><button onClick={() => handleExport("csv")}>CSV</button><button onClick={() => handleExport("json")}>JSON</button></div></details>}
+          <button className="icon-button settings-button" onClick={() => setShowSettings(true)} aria-label={t("common.settings")} title={t("common.settings")}><SettingsIcon size={19} /></button>
         </div>
       </header>
 
-      <div className="toolbar">
+      <div className="workspace-toolbar">
         <SearchBar ref={searchInputRef} value={search} onChange={handleSearchChange} />
-        <div className="filters">
-          {FILTER_OPTIONS.map((f) => (
-            <button
-              key={f.key}
-              className={`filter-btn ${filter === f.key ? "active" : ""}`}
-              onClick={() => handleFilterChange(f.key)}
-            >
-              {f.label}
-            </button>
-          ))}
+        <div className="protocol-switch" role="group" aria-label={t("app.protocolLabel")}>
+          {["all", "TCP", "UDP"].map((protocol) => <button key={protocol} aria-pressed={protocolFilter === protocol} onClick={() => setProtocolFilter(protocol)}>{protocol === "all" ? t("app.filter.all") : protocol}</button>)}
         </div>
-        {selectedIds.size > 0 && (
-          <button
-            className="btn btn-batch-kill"
-            onClick={handleBatchKill}
-            disabled={batchKilling}
-          >
-            {batchKilling
-              ? t("app.batchKilling")
-              : t("app.batchKill", { count: selectedIds.size })}
-          </button>
-        )}
-      </div>
-
-      <div className="main">
-        <div
-          className="table-area"
-          onClick={() => {
-            if (!rowClickedRef.current) {
-              setSelected(null);
-            }
-            rowClickedRef.current = false;
-          }}
-        >
-          <PortTable
-            services={filtered}
-            selected={selected}
-            loading={loading}
-            scanTotal={scanTotal}
-            scannedCount={scannedCount}
-            hasFilter={search !== "" || filter !== "all"}
-            selectedIds={selectedIds}
-            onSelect={(s) => {
-              rowClickedRef.current = true;
-              setSelected(s);
-            }}
-            onKill={(s) => setKillTarget(s)}
-            onToggleSelect={toggleSelect}
-            onToggleSelectAll={toggleSelectAll}
-            bookmarkedPorts={bookmarkedPorts}
-            onToggleBookmark={toggleBookmark}
-          />
-        </div>
-        {selected && (
-          <div className="detail-area">
-            <ServiceDetail
-              service={selected}
-              onKill={() => setKillTarget(selected)}
-              onClose={() => setSelected(null)}
-            />
+        <label className="grouping-select"><ListIcon size={18} aria-hidden="true" /><select aria-label={t("app.listView")} value={byProject ? "project" : "flat"} onChange={(event) => setByProject(event.target.value === "project")}><option value="project">{t("app.groupByProject")}</option><option value="flat">{t("app.flatList")}</option></select></label>
+        <details className="workspace-menu filter-options">
+          <summary className={"icon-button " + (filter !== "all" || showTechnicalColumns ? "has-filter" : "")} aria-label={t("app.filterAndDisplay")} title={t("app.filterAndDisplay")}><FilterIcon size={18} /></summary>
+          <div className="workspace-popover">
+            <label>{t("app.filterLabel")}<select aria-label={t("app.filterLabel")} value={filter} onChange={(event) => handleFilterChange(event.target.value as FilterKey)}>{FILTER_OPTIONS.map((option) => <option key={option.key} value={option.key}>{option.label}{option.key === "safe" ? " · " + safeCount : option.key === "caution" ? " · " + cautionCount : option.key === "danger" ? " · " + dangerCount : ""}</option>)}</select></label>
+            <label>{t("app.sortLabel")}<select aria-label={t("app.sortLabel")} value={sort} onChange={(event) => setSort(event.target.value as SortKey)}><option value="port">{t("app.sort.port")}</option><option value="project">{t("app.sort.project")}</option><option value="process">{t("app.sort.process")}</option><option value="pid">PID</option></select></label>
+            <label className="technical-toggle"><input type="checkbox" checked={showTechnicalColumns} onChange={(event) => setShowTechnicalColumns(event.target.checked)} />{t("app.technicalColumns")}</label>
           </div>
-        )}
+        </details>
+        {selectedIds.size > 0 && <button className="batch-stop-button" onClick={() => setShowBatchConfirm(true)} disabled={batchKilling || terminatingPid !== null}><StopIcon size={16} />{batchKilling ? t("app.batchKilling") : t("app.batchKill", {count: batchTargets.length})}</button>}
       </div>
 
+      {actionNotice && <div className="workspace-action-notice" role="status"><span>{actionNotice}</span><button className="icon-button" aria-label={t("common.close")} onClick={() => setActionNotice(null)}><CloseIcon size={16} /></button></div>}
+      <main className="workspace-main">
+        <PortTable services={filtered} selected={selected} loading={loading} scanTotal={scanTotal} scannedCount={scannedCount}
+          hasFilter={search !== "" || filter !== "all" || protocolFilter !== "all"} scanFailed={issue !== null}
+          showTechnicalColumns={showTechnicalColumns} byProject={byProject} search={search}
+          terminatingPid={terminatingPid} actionsDisabled={terminatingPid !== null} selectedIds={selectedIds} bookmarkedPorts={bookmarkedPorts}
+          onSelect={setSelected} onClose={() => setSelected(null)} onKill={(service) => {if (!operationRef.current) setKillTarget(service);}}
+          onToggleSelect={toggleSelect} onToggleSelectAll={toggleSelectAll} onToggleBookmark={toggleBookmark} />
+      </main>
+      <footer className={"workspace-status " + (issue ? "has-issue" : "")} role="status" aria-live="polite">
+        <span className="scan-state">{scanning ? <RefreshIcon className="spinning" size={13} /> : <CircleIcon size={9} weight="fill" aria-hidden="true" />}
+          {issue ? t("app.scanIssue." + issue.kind as "app.scanIssue.failed" | "app.scanIssue.timeout" | "app.scanIssue.partial", {count: issue.skipped ?? 0}) : scanning
+            ? scanTotal ? t("app.scanProgress", {count: scannedCount, total: scanTotal}) : t("portTable.scanningPorts")
+            : t("app.scanComplete")}</span>
+        {!issue && <span className="workspace-result-count">{t("app.resultCount", {shown: filtered.length, total: services.length})}</span>}
+        {issue?.message && <span className="workspace-error-detail" title={issue.message}>{issue.message}</span>}
+        {!scanning && durationMs !== null && <span className="workspace-duration">{t("app.scanDuration", {seconds: (durationMs / 1000).toFixed(2)})}</span>}
+      </footer>
+
+      {showBatchConfirm && (
+        <ConfirmBatchKillDialog services={batchTargets} onConfirm={handleBatchKill} onCancel={() => setShowBatchConfirm(false)} />
+      )}
       {killTarget && (
         <ConfirmKillDialog
           service={killTarget}

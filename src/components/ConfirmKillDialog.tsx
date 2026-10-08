@@ -11,18 +11,23 @@ interface Props {
 export default function ConfirmKillDialog({ service, onConfirm, onCancel }: Props) {
   const { t } = useTranslation();
   const [confirmText, setConfirmText] = useState("");
+  const [force, setForce] = useState(false);
   const isDanger = service.safety_level === "danger";
   const isCaution = service.safety_level === "caution" || service.safety_level === "unknown";
 
   const shortCwd = service.cwd
     ? service.cwd.replace(/^\/Users\/[^/]+/, "~")
     : "";
+  const modeControl = <div className="termination-mode">
+    <p>{t("confirmDialog.processScope")}</p>
+    <label><input type="checkbox" checked={force} onChange={(event) => setForce(event.target.checked)} />{t("confirmDialog.force")}</label>
+  </div>;
 
   // 危险服务禁止终止
   if (isDanger) {
     return (
       <div className="dialog-overlay" onClick={onCancel}>
-        <div className="dialog" onClick={(e) => e.stopPropagation()}>
+        <div className="dialog" role="dialog" aria-modal="true" aria-label={t("common.terminate")} onClick={(e) => e.stopPropagation()}>
           <h3>{t("confirmDialog.danger.title")}</h3>
           <div className="dialog-warning danger">
             {t("confirmDialog.danger.warning", { processName: service.process_name })}
@@ -60,7 +65,7 @@ export default function ConfirmKillDialog({ service, onConfirm, onCancel }: Prop
     const canConfirm = confirmText === service.port.toString();
     return (
       <div className="dialog-overlay" onClick={onCancel}>
-        <div className="dialog" onClick={(e) => e.stopPropagation()}>
+        <div className="dialog" role="dialog" aria-modal="true" aria-label={t("common.terminate")} onClick={(e) => e.stopPropagation()}>
           <h3>{t("confirmDialog.caution.title")}</h3>
           <div className="dialog-warning caution">
             {service.safety_reason}
@@ -98,6 +103,7 @@ export default function ConfirmKillDialog({ service, onConfirm, onCancel }: Prop
               autoFocus
             />
           </div>
+          {modeControl}
           <div className="dialog-actions">
             <button className="btn" onClick={onCancel}>
               {t("common.cancel")}
@@ -105,7 +111,7 @@ export default function ConfirmKillDialog({ service, onConfirm, onCancel }: Prop
             <button
               className="btn btn-danger"
               disabled={!canConfirm}
-              onClick={() => onConfirm(false)}
+              onClick={() => onConfirm(force)}
             >
               {t("common.terminate")}
             </button>
@@ -118,7 +124,7 @@ export default function ConfirmKillDialog({ service, onConfirm, onCancel }: Prop
   // 安全服务简单确认
   return (
     <div className="dialog-overlay" onClick={onCancel}>
-      <div className="dialog" onClick={(e) => e.stopPropagation()}>
+      <div className="dialog" role="dialog" aria-modal="true" aria-label={t("common.terminate")} onClick={(e) => e.stopPropagation()}>
         <h3>{t("confirmDialog.safe.title")}</h3>
         <div className="dialog-warning safe">
           {service.safety_reason}
@@ -157,11 +163,12 @@ export default function ConfirmKillDialog({ service, onConfirm, onCancel }: Prop
             </div>
           )}
         </div>
+        {modeControl}
         <div className="dialog-actions">
           <button className="btn" onClick={onCancel}>
             {t("common.cancel")}
           </button>
-          <button className="btn btn-safe" onClick={() => onConfirm(false)}>
+          <button className="btn btn-safe" onClick={() => onConfirm(force)}>
             {t("common.terminate")}
           </button>
         </div>

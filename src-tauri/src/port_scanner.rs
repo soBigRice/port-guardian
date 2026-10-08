@@ -10,7 +10,7 @@ pub struct PortInfo {
 }
 
 /// 扫描本机 TCP 监听端口和 UDP 绑定端口（全平台统一使用 netstat2 API）
-/// - macOS: 通过 libproc 调用系统 API，比 lsof 子进程快 10 倍以上
+/// - macOS: 通过 libproc 调用系统 API
 /// - Windows: 通过 GetExtendedTcpTable / GetExtendedUdpTable API
 /// - Linux: 通过 /proc/net/tcp 和 /proc/net/udp
 pub fn scan_listening_ports() -> Result<Vec<PortInfo>, String> {
@@ -35,16 +35,16 @@ pub fn scan_listening_ports() -> Result<Vec<PortInfo>, String> {
             let addr = tcp_si.local_addr.to_string();
 
             for &pid in &si.associated_pids {
-                if ports.iter().any(|p: &PortInfo| p.pid == pid && p.protocol == "TCP" && p.port == port) {
-                    continue;
-                }
-                ports.push(PortInfo {
-                    port,
-                    protocol: "TCP".to_string(),
-                    local_address: addr.clone(),
-                    state: "LISTEN".to_string(),
-                    pid,
-                });
+                add_port(
+                    &mut ports,
+                    PortInfo {
+                        port,
+                        protocol: "TCP".to_string(),
+                        local_address: addr.clone(),
+                        state: "LISTEN".to_string(),
+                        pid,
+                    },
+                );
             }
         }
     }
@@ -59,19 +59,92 @@ pub fn scan_listening_ports() -> Result<Vec<PortInfo>, String> {
             let addr = udp_si.local_addr.to_string();
 
             for &pid in &si.associated_pids {
-                if ports.iter().any(|p: &PortInfo| p.pid == pid && p.protocol == "UDP" && p.port == port) {
-                    continue;
-                }
-                ports.push(PortInfo {
-                    port,
-                    protocol: "UDP".to_string(),
-                    local_address: addr.clone(),
-                    state: "UNCONN".to_string(),
-                    pid,
-                });
+                add_port(
+                    &mut ports,
+                    PortInfo {
+                        port,
+                        protocol: "UDP".to_string(),
+                        local_address: addr.clone(),
+                        state: "UNCONN".to_string(),
+                        pid,
+                    },
+                );
             }
         }
     }
 
     Ok(ports)
+}
+
+// 服务仍按协议、端口和 PID 合并，但保留全部绑定地址（包括 IPv4/IPv6）。
+fn add_port(ports: &mut Vec<PortInfo>, incoming: PortInfo) {
+    // 系统也会返回尚未绑定的 UDP 套接字；端口 0 不代表可释放的占用端口。
+    if incoming.port == 0 {
+        return;
+    }
+    if let Some(existing) = ports.iter_mut().find(|p| {
+        p.pid == incoming.pid && p.port == incoming.port && p.protocol == incoming.protocol
+    }) {
+        let mut addresses: Vec<_> = existing
+            .local_address
+            .split(", ")
+            .map(str::to_owned)
+            .collect();
+        if !addresses.contains(&incoming.local_address) {
+            addresses.push(incoming.local_address);
+            addresses.sort();
+            existing.local_address = addresses.join(", ");
+        }
+    } else {
+        ports.push(incoming);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn excludes_unbound_sockets() {
+        let mut ports = Vec::new();
+        add_port(
+            &mut ports,
+            PortInfo {
+                port: 0,
+                protocol: "UDP".into(),
+                local_address: "0.0.0.0".into(),
+                state: "UNCONN".into(),
+                pid: 123,
+            },
+        );
+        assert!(ports.is_empty());
+    }
+    #[test]
+    fn preserves_both_addresses_without_duplicate_rows() {
+        let mut ports = Vec::new();
+        for address in ["127.0.0.1", "::1", "127.0.0.1"] {
+            add_port(
+                &mut ports,
+                PortInfo {
+                    port: 3000,
+                    protocol: "TCP".into(),
+                    local_address: address.into(),
+                    state: "LISTEN".into(),
+                    pid: 123,
+                },
+            );
+        }
+        assert_eq!(ports.len(), 1);
+        assert_eq!(ports[0].local_address, "127.0.0.1, ::1");
+        add_port(
+            &mut ports,
+            PortInfo {
+                port: 3000,
+                protocol: "UDP".into(),
+                local_address: "127.0.0.1".into(),
+                state: "UNCONN".into(),
+                pid: 123,
+            },
+        );
+        assert_eq!(ports.len(), 2);
+    }
 }

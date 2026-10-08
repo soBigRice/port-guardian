@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { AppWindowIcon, CubeIcon, SettingsIcon, TerminalWindowIcon } from "./icons";
 
 // 全局图标缓存，避免重复请求
 const iconCache = new Map<string, string | null>();
@@ -68,7 +69,9 @@ export default function SourceIcon({ source, executablePath, size = 14 }: Props)
   }, [source, executablePath, cacheKey]);
 
   if (!src) {
-    return null;
+    const terminal = /terminal|iterm|warp/i.test(source);
+    const Icon = terminal ? TerminalWindowIcon : source === "Docker" ? CubeIcon : /^(System|系统)$/i.test(source) ? SettingsIcon : AppWindowIcon;
+    return <Icon className="source-fallback" size={size} weight={terminal ? "fill" : "regular"} aria-hidden="true" />;
   }
 
   return (

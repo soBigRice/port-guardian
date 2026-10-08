@@ -9,6 +9,16 @@ const zh = {
     scanning: "扫描中...",
   },
   app: {
+    brandSubtitle: "端口守卫", scanComplete: "扫描完成", listView: "列表视图",
+    groupByProject: "按项目分组", flatList: "平铺列表", filterAndDisplay: "筛选与显示",
+    filterLabel: "筛选", protocolLabel: "协议", allProtocols: "TCP + UDP", sortLabel: "排序",
+    sort: {port: "端口", project: "项目目录", process: "进程名称"},
+    technicalColumns: "详细列", resultCount: "显示 {shown} / {total} 个服务",
+    scanProgress: "正在识别服务 {count} / {total}", scanDuration: "用时 {seconds} 秒",
+    scanIssue: {failed: "扫描失败，已保留现有结果", timeout: "扫描超时，已保留现有结果", partial: "有 {count} 条记录未能识别，已保留未核实的旧条目"},
+    processExited: "进程 {pid} 已退出，端口 {port} 已释放",
+    portStillOccupied: "进程 {pid} 已退出，正在重新核实端口 {port} 的占用状态",
+    batchResult: "已退出 {success} 个进程，失败 {failed} 个",
     filter: {
       all: "全部",
       safe: "安全可杀",
@@ -23,12 +33,12 @@ const zh = {
       app: "应用程序",
     },
     stats: {
-      listeningPorts: "监听端口:",
+      listeningPorts: "端口服务:",
       safe: "安全:",
       caution: "谨慎:",
       danger: "危险:",
     },
-    refresh: "刷新",
+    refresh: "刷新扫描",
     browserWarningBefore: "当前在浏览器中运行，请使用",
     browserWarningAfter: "启动以获得完整功能",
     browserUpdateError: "当前浏览器预览环境不能检查更新，请在 Tauri 应用内重试。",
@@ -38,7 +48,12 @@ const zh = {
     export: "导出",
   },
   portTable: {
+    processAndService: "进程与服务", projectDirectory: "项目目录", otherGroup: "系统与其他",
+    groupCount: "{count} 个端口", viewDetails: "查看端口 {port} 详情",
+    selectAll: "选择全部可操作服务", selectPort: "选择端口 {port}（PID {pid}）",
+    bookmark: "收藏端口 {port}", removeBookmark: "取消收藏端口 {port}", unknownProject: "未获取目录",
     header: {
+      project: "项目",
       port: "端口",
       serviceType: "服务类型",
       process: "进程",
@@ -50,6 +65,7 @@ const zh = {
       actions: "操作",
     },
     empty: {
+      scanFailed: "未能完成扫描，请点击刷新重试",
       noMatch: "没有匹配的服务",
       noPorts: "未发现监听端口",
     },
@@ -57,6 +73,10 @@ const zh = {
     cwdTooltip: "点击打开:",
   },
   serviceDetail: {
+    processPid: "进程 PID", launchSource: "启动来源", terminateProcess: "终止进程",
+    processScope: "将关闭该进程占用的全部端口", moreInfo: "更多信息", collapse: "收起",
+    copyCommand: "复制启动命令", copied: "已复制", copyFailed: "无法复制命令，请手动选择复制",
+    pathFailed: "无法打开目录：", unavailable: "未获取",
     title: "端口 {port} 详情",
     section: {
       basicInfo: "基础信息",
@@ -87,6 +107,9 @@ const zh = {
     currentProcess: "当前进程",
   },
   confirmDialog: {
+    processScope: "终止的是整个进程，该 PID 占用的其他端口也会一起关闭。",
+    force: "强制终止（可能丢失未保存的数据）",
+    batch: {title: "确认终止 {count} 个进程？", confirm: "包含未确认安全的服务，请输入端口 {ports}（用逗号分隔）："},
     danger: {
       title: "禁止终止该服务",
       warning: "{processName} 是系统或关键服务，不建议通过本工具终止。",
@@ -111,7 +134,7 @@ const zh = {
     },
   },
   searchBar: {
-    placeholder: "搜索端口、进程名、命令、目录...",
+    placeholder: "搜索端口、进程或项目",
   },
   settings: {
     title: "设置",

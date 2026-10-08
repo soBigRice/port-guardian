@@ -321,69 +321,32 @@ fn get_cwd(pid: u32) -> String {
 /// macOS: 通过 proc_pidinfo(PROC_PIDVNODEPATHINFO) 获取进程当前目录
 #[cfg(target_os = "macos")]
 fn get_cwd_macos(pid: u32) -> String {
-    // PROC_PIDVNODEPATHINFO = 9
-    const PROC_PIDVNODEPATHINFO: u32 = 9;
-
-    // 匹配 macOS 内核头文件中的结构体布局
-    #[repr(C)]
-    struct VnodeInfo {
-        vi_type: i32,
-        vi_fsid: u32,
-        vi_dev: u32,
-        vi_mode: u16,
-        _pad1: u16,
-        vi_nlink: u32,
-        vi_ino: u64,
-        vi_user: u64,
-        vi_group: u64,
-        vi_atime: i64,
-        vi_atime_nsec: i64,
-        vi_mtime: i64,
-        vi_mtime_nsec: i64,
-        vi_ctime: i64,
-        vi_ctime_nsec: i64,
-        vi_birthtime: i64,
-        vi_birthtime_nsec: i64,
-        vi_size: i64,
-        vi_blocks: i64,
-        vi_blocksize: i32,
-        _pad2: i32,
-        vi_flags: u32,
-        _pad3: u32,
-    }
-
-    #[repr(C)]
-    struct VnodeInfoWithPath {
-        vip_vi: VnodeInfo,
-        vip_path: [u8; 1024],
-    }
-
-    #[repr(C)]
-    struct ProcVnodePathInfo {
-        pvi_cdir: VnodeInfoWithPath,
-        pvi_rdir: VnodeInfoWithPath,
-    }
-
-    let mut info = core::mem::MaybeUninit::<ProcVnodePathInfo>::uninit();
-    let size = core::mem::size_of::<ProcVnodePathInfo>() as i32;
+    // 使用 libc 的系统 ABI 类型，避免手写布局遗漏字段导致 proc_pidinfo 拒绝缓冲区。
+    let mut info = core::mem::MaybeUninit::<libc::proc_vnodepathinfo>::zeroed();
+    let size = core::mem::size_of::<libc::proc_vnodepathinfo>() as i32;
 
     let ret = unsafe {
         libc::proc_pidinfo(
             pid as i32,
-            PROC_PIDVNODEPATHINFO as i32,
+            libc::PROC_PIDVNODEPATHINFO,
             0,
             info.as_mut_ptr() as *mut libc::c_void,
             size,
         )
     };
 
-    if ret <= 0 {
+    if ret != size {
         return String::new();
     }
 
     let info = unsafe { info.assume_init() };
-    let path_bytes = &info.pvi_cdir.vip_path;
-    // 找到 null 终止符
+    let path_bytes: Vec<u8> = info
+        .pvi_cdir
+        .vip_path
+        .iter()
+        .flatten()
+        .map(|&b| b as u8)
+        .collect();
     let len = path_bytes
         .iter()
         .position(|&b| b == 0)
@@ -430,6 +393,16 @@ fn get_executable_path(pid: u32) -> String {
 #[cfg(test)]
 mod tests {
     use super::{decode_percent_encoded_utf8, normalize_process_name};
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn reads_actual_working_directory_with_system_abi() {
+        let expected = std::env::current_dir().unwrap();
+        assert_eq!(
+            std::path::PathBuf::from(super::get_cwd_macos(std::process::id())),
+            expected
+        );
+    }
 
     #[test]
     fn decodes_utf8_percent_encoded_command_paths() {

@@ -11,6 +11,16 @@ const en: typeof zh = {
     scanning: "Scanning...",
   },
   app: {
+    brandSubtitle: "Port utility", scanComplete: "Scan complete", listView: "List view",
+    groupByProject: "Group by project", flatList: "Flat list", filterAndDisplay: "Filters and display",
+    filterLabel: "Filter", protocolLabel: "Protocol", allProtocols: "TCP + UDP", sortLabel: "Sort",
+    sort: {port: "Port", project: "Project directory", process: "Process name"},
+    technicalColumns: "Detailed columns", resultCount: "Showing {shown} / {total} services",
+    scanProgress: "Identifying services {count} / {total}", scanDuration: "{seconds} seconds",
+    scanIssue: {failed: "Scan failed. Existing results retained.", timeout: "Scan timed out. Existing results retained.", partial: "Could not identify {count} entries. Unverified previous entries retained."},
+    processExited: "Process {pid} exited; port {port} is released",
+    portStillOccupied: "Process {pid} exited; rechecking port {port}",
+    batchResult: "Exited: {success} processes. Failed: {failed}",
     filter: {
       all: "All",
       safe: "Safe",
@@ -25,12 +35,12 @@ const en: typeof zh = {
       app: "Applications",
     },
     stats: {
-      listeningPorts: "Listening:",
+      listeningPorts: "Services:",
       safe: "Safe:",
       caution: "Caution:",
       danger: "Danger:",
     },
-    refresh: "Refresh",
+    refresh: "Rescan",
     browserWarningBefore: "Running in browser. Please use",
     browserWarningAfter: "for full functionality",
     browserUpdateError: "Cannot check updates in browser preview. Please use the Tauri app.",
@@ -40,7 +50,12 @@ const en: typeof zh = {
     export: "Export",
   },
   portTable: {
+    processAndService: "Process and service", projectDirectory: "Project directory", otherGroup: "System and other",
+    groupCount: "{count} ports", viewDetails: "View port {port} details",
+    selectAll: "Select all actionable services", selectPort: "Select port {port} (PID {pid})",
+    bookmark: "Bookmark port {port}", removeBookmark: "Remove bookmark for port {port}", unknownProject: "Directory unavailable",
     header: {
+      project: "Project",
       port: "Port",
       serviceType: "Service",
       process: "Process",
@@ -52,6 +67,7 @@ const en: typeof zh = {
       actions: "Actions",
     },
     empty: {
+      scanFailed: "Scan could not finish. Click Refresh to retry.",
       noMatch: "No matching services",
       noPorts: "No listening ports found",
     },
@@ -59,6 +75,10 @@ const en: typeof zh = {
     cwdTooltip: "Click to open:",
   },
   serviceDetail: {
+    processPid: "Process PID", launchSource: "Launch source", terminateProcess: "Terminate process",
+    processScope: "Closes every port owned by this process", moreInfo: "More info", collapse: "Collapse",
+    copyCommand: "Copy command", copied: "Copied", copyFailed: "Cannot copy command. Select and copy it manually.",
+    pathFailed: "Cannot open directory:", unavailable: "Unavailable",
     title: "Port {port} Details",
     section: {
       basicInfo: "Basic Info",
@@ -89,6 +109,9 @@ const en: typeof zh = {
     currentProcess: "current",
   },
   confirmDialog: {
+    processScope: "This terminates the whole process, closing all other ports owned by the same PID.",
+    force: "Force termination (unsaved data may be lost)",
+    batch: {title: "Terminate {count} processes?", confirm: "Some services are not confirmed safe. Enter ports {ports}, separated by commas:"},
     danger: {
       title: "Cannot Terminate",
       warning: "{processName} is a system or critical service. Terminating it is not recommended.",
@@ -113,7 +136,7 @@ const en: typeof zh = {
     },
   },
   searchBar: {
-    placeholder: "Search port, process, command, directory...",
+    placeholder: "Search ports, processes or projects",
   },
   settings: {
     title: "Settings",

@@ -68,7 +68,9 @@ Categorizes each port service into **9 major categories**:
 ### 🎨 UI Features
 - **Search & Filter**: Search by port number, process name, command, directory, service name, source, etc.
 - **Quick Filters**: One-click filtering by risk level or service type
-- **Detail Panel**: Click any port entry to expand full process information on the right
+- **Project Groups**: Group services by their actual working directory, or switch to a flat list.
+- **Inline Details**: Open a port in place, copy its command, and expand the process chain without leaving the list.
+- **Display Options**: Filter TCP/UDP, risk or service type; restore full technical columns from the filter menu.
 - **Theme Switching**: Supports 🌞 Light / 🌙 Dark / 💻 System-following themes
 - **Kill Mode**: Supports SIGTERM (graceful termination) and SIGKILL (force termination)
 
@@ -76,25 +78,9 @@ Categorizes each port service into **9 major categories**:
 
 ## 🖼️ Interface Preview
 
-> On launch, Port Guardian automatically scans and displays all listening ports:
+> Project workspace with demonstration scan data. The desktop app lists real local services.
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│  🛡️ Port Guardian                              [⚙️] [🔄]       │
-├─────────────────────────────────────────────────────────────────┤
-│  🔍 Search ports, processes, services...                        │
-│  [🟢 Dev] [🤖 AI] [🗄️ DB] [🐳 Docker] [⚙️ System]              │
-├─────────────────────────────────────────────────────────────────┤
-│  Port  │ Service Name   │ Process   │ Source     │ Risk │ Action │
-│  3000  │ Vite           │ node      │ Cursor     │ 🟢   │ [Kill] │
-│  5432  │ PostgreSQL     │ postgres  │ Terminal   │ 🟡   │ [Kill] │
-│  8080  │ Next.js        │ node      │ VSCode     │ 🟢   │ [Kill] │
-│  6379  │ Redis          │ redis-srv │ Docker     │ 🟡   │ [Kill] │
-│  5000  │ AirDrop        │ launchd   │ System     │ 🔴   │ [N/A]  │
-├─────────────────────────────────────────────────────────────────┤
-│                                              Detail Panel →      │
-└─────────────────────────────────────────────────────────────────┘
-```
+![Project workspace](docs/design/project-workspace-implemented.png)
 
 ---
 
@@ -110,7 +96,7 @@ port-guardian/
 │   └── components/
 │       ├── PortTable.tsx         # Port list table
 │       ├── SearchBar.tsx         # Search bar
-│       ├── ServiceDetail.tsx     # Service detail side panel
+│       ├── ServiceDetail.tsx     # Inline service details and process chain
 │       ├── ConfirmKillDialog.tsx # Kill confirmation dialog
 │       ├── RiskBadge.tsx         # Risk level badge
 │       └── Settings.tsx          # Settings dialog (theme switching)
@@ -132,20 +118,18 @@ port-guardian/
 
 ### Data Flow
 
-```
-  ┌──────────────┐     IPC invoke      ┌─────────────────┐
-  │  React Front │ ──────────────────→ │  Tauri Backend   │
-  │              │                     │                 │
-  │  App.tsx     │ ←────────────────── │  commands.rs    │
-  │  State Mgmt  │    JSON Response    │  scan_ports()   │
-  │  UI Render   │                     │  terminate()    │
-  └──────────────┘                     └─────────────────┘
-                                              │
-                                              ▼
-                                    ┌─────────────────┐
-                                    │  System Commands │
-                                    │  lsof / ps / kill│
-                                    └─────────────────┘
+Implementation invariants and validation are documented in [Port scanning, refresh and termination](docs/port-scanning.md).
+
+```text
+Listeners ready → usePortScan.refresh(scanId) → scan_ports_stream
+  → blocking worker + exclusive scan guard → TCP/UDP sockets
+  → per-scan process cache → classification and safety
+  → tagged progress events for the first screen
+  → complete ScanResult response → mergeScannedServices → table/details
+
+Failed/timed-out scans retain existing results; partial scans update received entries only.
+Termination: confirm → deduplicate PID → recheck ownership/identity → signal
+  → wait for exit → remove all rows for that PID → rescan.
 ```
 
 ---

@@ -1,0 +1,21 @@
+// 单图标入口避免开发时转译整套图标；与桌面系统图标保持一致的细线风格。
+export { ArrowClockwiseIcon as RefreshIcon } from "@phosphor-icons/react/dist/csr/ArrowClockwise";
+export { ExportIcon } from "@phosphor-icons/react/dist/csr/Export";
+export { GearSixIcon as SettingsIcon } from "@phosphor-icons/react/dist/csr/GearSix";
+export { MagnifyingGlassIcon as SearchIcon } from "@phosphor-icons/react/dist/csr/MagnifyingGlass";
+export { FolderSimpleIcon as FolderIcon } from "@phosphor-icons/react/dist/csr/FolderSimple";
+export { CaretDownIcon } from "@phosphor-icons/react/dist/csr/CaretDown";
+export { CaretRightIcon } from "@phosphor-icons/react/dist/csr/CaretRight";
+export { CaretUpIcon } from "@phosphor-icons/react/dist/csr/CaretUp";
+export { StarIcon } from "@phosphor-icons/react/dist/csr/Star";
+export { DotsThreeIcon as MoreIcon } from "@phosphor-icons/react/dist/csr/DotsThree";
+export { CopyIcon } from "@phosphor-icons/react/dist/csr/Copy";
+export { CheckIcon } from "@phosphor-icons/react/dist/csr/Check";
+export { XIcon as CloseIcon } from "@phosphor-icons/react/dist/csr/X";
+export { FunnelSimpleIcon as FilterIcon } from "@phosphor-icons/react/dist/csr/FunnelSimple";
+export { StopCircleIcon as StopIcon } from "@phosphor-icons/react/dist/csr/StopCircle";
+export { TerminalWindowIcon } from "@phosphor-icons/react/dist/csr/TerminalWindow";
+export { CubeIcon } from "@phosphor-icons/react/dist/csr/Cube";
+export { AppWindowIcon } from "@phosphor-icons/react/dist/csr/AppWindow";
+export { CircleIcon } from "@phosphor-icons/react/dist/csr/Circle";
+export { ListIcon } from "@phosphor-icons/react/dist/csr/List";

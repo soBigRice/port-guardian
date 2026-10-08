@@ -71,3 +71,17 @@ export interface TerminateResult {
   message: string;
   port_released: boolean;
 }
+
+export interface ScanProgress {
+  scan_id: string;
+  total: number;
+  processed: number;
+  skipped: number;
+}
+
+export interface ScanResult {
+  scan_id: string;
+  total: number;
+  skipped: number;
+  services: PortService[];
+}

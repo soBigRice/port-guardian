@@ -39,82 +39,83 @@ pub struct ProcessDetail {
     pub safety: SafetyJudgment,
 }
 
-/// 扫描所有监听端口，返回完整的端口服务列表
-#[tauri::command]
-pub fn scan_ports() -> Result<Vec<PortService>, String> {
-    let current_user = whoami::username();
-
-    // Windows: 一次性批量获取所有进程信息（避免逐个调用 PowerShell，大幅提速）
-    process_resolver::prefetch_all_processes();
-
-    let ports = port_scanner::scan_listening_ports()?;
-    let mut services = Vec::new();
-
-    for port_info in ports {
-        let process = match process_resolver::resolve_process(port_info.pid) {
-            Ok(p) => p,
-            Err(_) => continue,
-        };
-
-        let parent_chain = process_tree::build_parent_chain(port_info.pid);
-        let source = process_tree::identify_source(&parent_chain);
-        let classification =
-            service_classifier::classify(&process, &parent_chain, port_info.port, &source);
-        let safety = safety_checker::judge(
-            &classification.service_type,
-            &process.name,
-            &process.command_line,
-            &process.user,
-            &current_user,
-        );
-
-        services.push(PortService {
-            id: format!("{}-{}-{}", port_info.protocol, port_info.port, port_info.pid),
-            port: port_info.port,
-            protocol: port_info.protocol,
-            local_address: port_info.local_address,
-            state: port_info.state,
-            pid: port_info.pid,
-            process_name: process.name,
-            executable_path: process.executable_path,
-            command_line: process.command_line,
-            cwd: process.cwd,
-            user: process.user,
-            parent_chain,
-            source,
-            service_type: classification.service_type,
-            service_name: classification.service_name,
-            safety_level: safety.level,
-            safety_reason: safety.reason,
-            can_terminate: safety.can_terminate,
-        });
-    }
-
-    Ok(services)
+#[derive(Debug, Clone, Serialize)]
+pub struct ScanProgress {
+    pub scan_id: String,
+    pub total: usize,
+    pub processed: usize,
+    pub skipped: usize,
 }
 
-/// 流式扫描端口：扫描到一个就通过事件推送给前端
-#[tauri::command(async)]
-pub async fn scan_ports_stream(app: AppHandle) -> Result<(), String> {
-    // Windows: 一次性批量获取所有进程信息（避免逐个调用 PowerShell，大幅提速）
-    process_resolver::prefetch_all_processes();
+#[derive(Debug, Clone, Serialize)]
+pub struct ScanResult {
+    pub scan_id: String,
+    pub total: usize,
+    pub skipped: usize,
+    pub services: Vec<PortService>,
+}
 
+#[derive(Clone, Serialize)]
+struct PortFound<'a> {
+    scan_id: &'a str,
+    service: &'a PortService,
+}
+
+// watchdog 只结束前端等待，不能取消已经运行的系统查询；后端禁止叠加扫描。
+static SCAN_ACTIVE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+struct ScanGuard;
+impl ScanGuard {
+    fn acquire() -> Result<Self, String> {
+        use std::sync::atomic::Ordering;
+        SCAN_ACTIVE
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .map(|_| Self)
+            .map_err(|_| "上一轮扫描仍在执行，请稍后重试".into())
+    }
+}
+impl Drop for ScanGuard {
+    fn drop(&mut self) {
+        SCAN_ACTIVE.store(false, std::sync::atomic::Ordering::Release);
+    }
+}
+
+fn scan_services(
+    scan_id: String,
+    mut report: impl FnMut(&ScanProgress, Option<&PortService>) -> Result<(), String>,
+) -> Result<ScanResult, String> {
+    let _guard = ScanGuard::acquire()?;
+    process_resolver::prefetch_all_processes();
     let ports = port_scanner::scan_listening_ports()?;
     let current_user = whoami::username();
-    let total = ports.len();
-
-    let _ = app.emit("scan-start", total);
-
+    let mut progress = ScanProgress {
+        scan_id: scan_id.clone(),
+        total: ports.len(),
+        processed: 0,
+        skipped: 0,
+    };
+    report(&progress, None)?;
+    let mut services = Vec::new();
+    // 同一进程的多个端口复用本轮解析和溯源，缓存不跨扫描保存。
+    let mut processes = std::collections::HashMap::new();
     for port_info in ports {
-        let process = match process_resolver::resolve_process(port_info.pid) {
-            Ok(p) => p,
-            Err(_) => continue,
+        let resolved = processes.entry(port_info.pid).or_insert_with(|| {
+            process_resolver::resolve_process(port_info.pid).map(|process| {
+                let chain = process_tree::build_parent_chain(port_info.pid);
+                let source = process_tree::identify_source(&chain);
+                (process, chain, source)
+            })
+        });
+        progress.processed += 1;
+        let (process, parent_chain, source) = match resolved {
+            Ok(info) => info,
+            Err(_) => {
+                progress.skipped += 1;
+                report(&progress, None)?;
+                continue;
+            }
         };
-
-        let parent_chain = process_tree::build_parent_chain(port_info.pid);
-        let source = process_tree::identify_source(&parent_chain);
         let classification =
-            service_classifier::classify(&process, &parent_chain, port_info.port, &source);
+            service_classifier::classify(process, parent_chain, port_info.port, source);
         let safety = safety_checker::judge(
             &classification.service_type,
             &process.name,
@@ -122,33 +123,71 @@ pub async fn scan_ports_stream(app: AppHandle) -> Result<(), String> {
             &process.user,
             &current_user,
         );
-
         let service = PortService {
-            id: format!("{}-{}-{}", port_info.protocol, port_info.port, port_info.pid),
+            id: format!(
+                "{}-{}-{}",
+                port_info.protocol, port_info.port, port_info.pid
+            ),
             port: port_info.port,
             protocol: port_info.protocol,
             local_address: port_info.local_address,
             state: port_info.state,
             pid: port_info.pid,
-            process_name: process.name,
-            executable_path: process.executable_path,
-            command_line: process.command_line,
-            cwd: process.cwd,
-            user: process.user,
-            parent_chain,
-            source,
+            process_name: process.name.clone(),
+            executable_path: process.executable_path.clone(),
+            command_line: process.command_line.clone(),
+            cwd: process.cwd.clone(),
+            user: process.user.clone(),
+            parent_chain: parent_chain.clone(),
+            source: source.clone(),
             service_type: classification.service_type,
             service_name: classification.service_name,
             safety_level: safety.level,
             safety_reason: safety.reason,
             can_terminate: safety.can_terminate,
         };
-
-        let _ = app.emit("port-found", service);
+        report(&progress, Some(&service))?;
+        services.push(service);
     }
+    Ok(ScanResult {
+        scan_id,
+        total: progress.total,
+        skipped: progress.skipped,
+        services,
+    })
+}
 
-    let _ = app.emit("scan-complete", ());
-    Ok(())
+/// 兼容一次性查询入口，扫描实现与流式入口共用。
+#[tauri::command]
+pub fn scan_ports() -> Result<Vec<PortService>, String> {
+    scan_services(String::new(), |_, _| Ok(())).map(|result| result.services)
+}
+
+/// 事件提供首屏和进度反馈；命令返回的完整快照才是最终结果，避免事件收尾竞态。
+#[tauri::command]
+pub async fn scan_ports_stream(app: AppHandle, scan_id: String) -> Result<ScanResult, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        scan_services(scan_id, |progress, service| {
+            if progress.processed == 0 {
+                app.emit("scan-start", progress)
+                    .map_err(|e| e.to_string())?;
+            }
+            if let Some(service) = service {
+                app.emit(
+                    "port-found",
+                    PortFound {
+                        scan_id: &progress.scan_id,
+                        service,
+                    },
+                )
+                .map_err(|e| e.to_string())?;
+            }
+            app.emit("scan-progress", progress)
+                .map_err(|e| e.to_string())
+        })
+    })
+    .await
+    .map_err(|e| format!("扫描任务失败: {e}"))?
 }
 
 /// 获取指定 PID 的详细进程信息
@@ -182,57 +221,105 @@ pub fn get_process_detail(pid: u32) -> Result<ProcessDetail, String> {
     })
 }
 
-/// 终止指定进程
-#[tauri::command]
-pub fn terminate_process(pid: u32, force: bool) -> Result<TerminateResult, String> {
-    if force {
-        let result = terminator::force_terminate(pid);
-        if result.success {
-            // 等待进程真正退出（最多 3 秒），替代硬编码 sleep
-            terminator::wait_for_process_exit(pid, 3000);
-            Ok(TerminateResult {
-                port_released: !terminator::is_process_alive(pid),
-                ..result
-            })
-        } else {
-            Ok(result)
-        }
-    } else {
-        let result = terminator::terminate(pid);
-        if result.success {
-            // 等待进程真正退出（最多 2 秒）
-            terminator::wait_for_process_exit(pid, 2000);
-            Ok(TerminateResult {
-                port_released: !terminator::is_process_alive(pid),
-                message: format!("进程 {} 已成功终止", pid),
-                ..result
-            })
-        } else {
-            // Windows: 普通 taskkill 经常失败（WM_CLOSE 对控制台进程无效），
-            // 自动回退到强制终止 taskkill /F
-            let force_result = terminator::force_terminate(pid);
-            if force_result.success {
-                // 等待进程真正退出（最多 3 秒）
-                terminator::wait_for_process_exit(pid, 3000);
-                Ok(TerminateResult {
-                    port_released: !terminator::is_process_alive(pid),
-                    message: format!("进程 {} 已强制终止", pid),
-                    ..force_result
-                })
-            } else {
-                // 两次都失败，返回更有用的错误提示
-                let mut msg = force_result.message;
-                if msg.contains("Access") || msg.contains("拒绝") || msg.contains("denied") {
-                    msg = format!("{}（请尝试以管理员身份运行本工具）", msg);
-                }
-                Ok(TerminateResult {
-                    success: false,
-                    message: msg,
-                    port_released: false,
-                })
-            }
-        }
+fn validate_termination(
+    process: &ProcessInfo,
+    safety: &SafetyJudgment,
+    expected_path: &str,
+    expected_command: &str,
+    current_user: &str,
+) -> Result<(), String> {
+    if matches!(safety.level, SafetyLevel::Danger) {
+        return Err(safety.reason.clone());
     }
+    if !process.user.is_empty() && process.user != current_user {
+        return Err("不能终止其他用户的进程".into());
+    }
+    if (!expected_path.is_empty() && process.executable_path != expected_path)
+        || (expected_path.is_empty() && process.command_line != expected_command)
+    {
+        return Err("进程信息已变化，请刷新列表后重新确认".into());
+    }
+    Ok(())
+}
+
+/// 执行前重新核对端口、进程身份与风险；普通终止不隐式升级为强制终止。
+// 等待进程退出包含系统查询和阻塞等待，不能占用桌面 UI 线程。
+#[tauri::command(async)]
+pub fn terminate_process(
+    pid: u32,
+    force: bool,
+    port: u16,
+    protocol: String,
+    expected_executable_path: String,
+    expected_command_line: String,
+) -> Result<TerminateResult, String> {
+    if pid <= 4 || pid == std::process::id() {
+        return Err("禁止终止系统根进程或本工具".into());
+    }
+    let ports = port_scanner::scan_listening_ports()?;
+    if !ports
+        .iter()
+        .any(|p| p.pid == pid && p.port == port && p.protocol == protocol)
+    {
+        return Err("该进程已不再占用所选端口，请刷新列表".into());
+    }
+    process_resolver::prefetch_all_processes();
+    let process = process_resolver::resolve_process(pid)?;
+    let chain = process_tree::build_parent_chain(pid);
+    let source = process_tree::identify_source(&chain);
+    let class = service_classifier::classify(&process, &chain, port, &source);
+    let current_user = whoami::username();
+    let safety = safety_checker::judge(
+        &class.service_type,
+        &process.name,
+        &process.command_line,
+        &process.user,
+        &current_user,
+    );
+    validate_termination(
+        &process,
+        &safety,
+        &expected_executable_path,
+        &expected_command_line,
+        &current_user,
+    )?;
+    let result = if force {
+        terminator::force_terminate(pid)
+    } else {
+        terminator::terminate(pid)
+    };
+    if !result.success {
+        return Ok(result);
+    }
+    if !terminator::wait_for_process_exit(pid, if force { 3000 } else { 2000 }) {
+        return Ok(TerminateResult {
+            success: false,
+            port_released: false,
+            message: "进程尚未退出，请检查服务状态；必要时重新确认强制终止".into(),
+        });
+    }
+    // PID 退出与端口可用是不同状态：服务可能被守护进程自动重启。
+    let (port_released, message) = match port_scanner::scan_listening_ports() {
+        Ok(ports) => {
+            let released = !ports
+                .iter()
+                .any(|p| p.port == port && p.protocol == protocol);
+            (
+                released,
+                if released {
+                    format!("进程 {pid} 已退出，端口 {port} 已释放")
+                } else {
+                    format!("进程 {pid} 已退出，但端口 {port} 仍被占用")
+                },
+            )
+        }
+        Err(err) => (false, format!("进程 {pid} 已退出，端口状态未能核实: {err}")),
+    };
+    Ok(TerminateResult {
+        success: true,
+        port_released,
+        message,
+    })
 }
 
 /// 检查指定端口是否仍在监听（轻量级，单端口查询）
@@ -676,5 +763,50 @@ mod whoami {
         {
             std::env::var("USERNAME").unwrap_or_else(|_| "unknown".to_string())
         }
+    }
+}
+
+#[cfg(test)]
+mod scan_tests {
+    use super::*;
+    #[test]
+    fn rejects_root_pid_before_executing_a_signal() {
+        assert!(
+            terminate_process(0, true, 3000, "TCP".into(), String::new(), String::new()).is_err()
+        );
+    }
+    #[test]
+    fn rejects_changed_identity_and_protected_services() {
+        let process = ProcessInfo {
+            pid: 123,
+            ppid: 1,
+            name: "node".into(),
+            user: "developer".into(),
+            command_line: "node app.js".into(),
+            cwd: "/demo".into(),
+            executable_path: "/usr/bin/node".into(),
+        };
+        let safe = safety_checker::judge(
+            &ServiceType::DevService,
+            "node",
+            "node app.js",
+            "developer",
+            "developer",
+        );
+        assert!(validate_termination(&process, &safe, "/different/node", "", "developer").is_err());
+        assert!(
+            validate_termination(&process, &safe, "/usr/bin/node", "", "another-user").is_err()
+        );
+        let protected = safety_checker::judge(
+            &ServiceType::SystemService,
+            "launchd",
+            "",
+            "root",
+            "developer",
+        );
+        assert!(
+            validate_termination(&process, &protected, "/usr/bin/node", "", "developer").is_err()
+        );
+        assert!(validate_termination(&process, &safe, "/usr/bin/node", "", "developer").is_ok());
     }
 }

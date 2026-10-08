@@ -221,7 +221,7 @@ fn is_docker_service(name: &str, cmd: &str, chain: &[ProcessNode]) -> bool {
     })
 }
 
-fn detect_database(name: &str, port: u16) -> Option<String> {
+fn detect_database(name: &str, _port: u16) -> Option<String> {
     // 按进程名匹配
     if name.contains("postgres") {
         return Some("PostgreSQL".into());
@@ -257,17 +257,8 @@ fn detect_database(name: &str, port: u16) -> Option<String> {
         return Some("MariaDB".into());
     }
 
-    // 按常见端口匹配（仅在进程名无法判断时）
-    match port {
-        5432 => Some("PostgreSQL".into()),
-        3306 => Some("MySQL".into()),
-        6379 => Some("Redis".into()),
-        27017 => Some("MongoDB".into()),
-        11211 => Some("Memcached".into()),
-        8086 => Some("InfluxDB".into()),
-        9000 => None, // 9000 太常见，留给 MinIO
-        _ => None,
-    }
+    // 端口号不是服务身份，不能将占用数据库端口的开发服务误判为数据库。
+    None
 }
 
 fn detect_infra(name: &str, port: u16) -> Option<String> {
@@ -314,17 +305,7 @@ fn detect_infra(name: &str, port: u16) -> Option<String> {
         return Some("Docker Registry".into());
     }
 
-    // 按端口匹配
-    match port {
-        9000 => Some("MinIO".into()),
-        11434 => Some("Ollama".into()),
-        5672 => Some("RabbitMQ".into()),
-        9092 => Some("Kafka".into()),
-        2181 => Some("ZooKeeper".into()),
-        3000 if name.contains("grafana") => Some("Grafana".into()),
-        9090 if name.contains("prometheus") => Some("Prometheus".into()),
-        _ => None,
-    }
+    None
 }
 
 fn detect_web_server(name: &str, cmd: &str) -> Option<String> {
@@ -665,4 +646,53 @@ fn detect_framework(cmd: &str) -> String {
     }
 
     "Dev Service".into()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    fn process(name: &str, command: &str) -> ProcessInfo {
+        ProcessInfo {
+            pid: 123,
+            ppid: 1,
+            name: name.into(),
+            user: "developer".into(),
+            command_line: command.into(),
+            cwd: "/demo".into(),
+            executable_path: String::new(),
+        }
+    }
+    #[test]
+    fn development_service_is_not_identified_by_reserved_port() {
+        for port in [5432, 6379, 9000, 11434] {
+            let result = classify(
+                &process("node", "node /demo/node_modules/vite/bin/vite.js"),
+                &[],
+                port,
+                "Terminal",
+            );
+            assert!(matches!(result.service_type, ServiceType::DevService));
+            assert_eq!(result.service_name, "Vite");
+        }
+    }
+    #[test]
+    fn database_identity_wins_on_a_custom_port() {
+        let result = classify(
+            &process("postgres", "postgres -p 3000"),
+            &[],
+            3000,
+            "Terminal",
+        );
+        assert!(matches!(result.service_type, ServiceType::DatabaseService));
+    }
+    #[test]
+    fn unrecognized_process_on_database_port_stays_unknown() {
+        let result = classify(
+            &process("custom-daemon", "custom-daemon"),
+            &[],
+            5432,
+            "Unknown",
+        );
+        assert!(matches!(result.service_type, ServiceType::Unknown));
+    }
 }
