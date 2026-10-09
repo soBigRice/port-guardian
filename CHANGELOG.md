@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.13] - 2026-10-09
+
+### ✨ New Features
+
+- 更新应用图标：采用钴蓝底与白色端口守护符号，统一 macOS、Windows 安装包及官网的视觉标识。
+- 新增极简中英文官网，提供产品介绍、网页交互演示和最新稳定版本下载：[中文](https://sobigrice.github.io/port-guardian/) / [English](https://sobigrice.github.io/port-guardian/en/)。
+
 ## [0.2.12] - 2026-10-08
 
 ### ✨ New Features
