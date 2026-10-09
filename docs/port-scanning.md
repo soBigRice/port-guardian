@@ -1,6 +1,6 @@
 # 端口扫描、刷新与终止
 
-核对日期：2026-10-08。v0.2.12 发布代码，已合入 `b19ef86`（v0.2.10）的兼容修复；自动验证通过，桌面主观体验及 Windows 实机仍待验收。
+核对日期：2026-10-09。v0.2.13 发布代码，扫描与终止实现继承 v0.2.12，已合入 `b19ef86`（v0.2.10）的兼容修复；自动验证通过，桌面主观体验及 Windows 实机仍待验收。
 
 ## 入口和职责
 
@@ -108,3 +108,25 @@ Windows 发布回归入口（Node 20，2026-10-08）：v0.2.11 流水线日志�
 | `Port.Guardian_universal.app.tar.gz` | `502434315549c43ce2016902c4ec261496a73e387ef78aa58120a200c2772f47` |
 | `Port.Guardian_0.2.12_x64-setup.nsis.zip` | `29050152218b49ea64436db17428a1144e069e30cfa0cfc2a711ce7718261fe5` |
 | `Port.Guardian_0.2.12_x64-setup.exe` | `40f41f18f6a0abc6f492d1144fc0c1b4106b3067b06be6f415f525541d1133a5` |
+
+## v0.2.13 发行核验
+
+2026-10-09 已公开 [v0.2.13](https://github.com/soBigRice/port-guardian/releases/tag/v0.2.13)，发行提交 `0515dc6ab4f85a988c920a41c84b1ba42775eea3`；[Release 流水线 37893457939](https://github.com/soBigRice/port-guardian/actions/runs/37893457939) 的 macOS、Windows 与公开发布任务均成功。此次发行包含已确认的新图标及中英文官网；本机 12 项前端回归、14 项 Rust 回归、生产构建、各版本文件与完整 changelog 提取检查通过，两平台 CI 回归和正式打包均成功。
+
+- 八个公开资产均通过现有系统代理匿名下载，大小和 SHA-256 匹配 GitHub 公布的 digest。`releases/latest/download/latest.json` 与本次资产一致，版本 `0.2.13`；Release body 与 updater notes 均包含完整本版日志（统一 LF/CRLF 后比较）。
+- 六个平台元数据项对应三个唯一更新包，通过 `minisign` 对仓库原有公钥的验证；元数据签名与 `.sig` 附件一致。
+- macOS DMG 只读挂载后核对实际 `.app`，同时核对更新归档：版本 `0.2.13`、标识 `com.port-guardian.app`、Intel `x86_64` / Apple Silicon `arm64` 均正确，两者应用二进制相同；包内 `icon.icns` 与已确认导出资源逐字节一致。挂载已卸载。
+- 从 Windows NSIS 安装包只读提取 `port-guardian.exe`，未执行 Windows 代码；实际应用为 x64、版本 `0.2.13.0`，PE 图标组的六个图像 payload 均与新 `icon.ico` 完全相同。应用二进制 SHA-256 为 `210bba99bb9e42794da958329224f18aa7dbdf3339bd453e54c579049af11466`。安装器版本亦为 `0.2.13.0`，legacy updater ZIP 内的安装器与公开 EXE 相同。
+- [Pages 流水线 37895378115](https://github.com/soBigRice/port-guardian/actions/runs/37895378115) 成功；中英文公开 HTML 均与本地 v0.2.13 构建逐字节一致，静态下载链接也已更新，官网图标与应用导出资源一致。
+- 未执行本次安装包的实际覆盖安装或 Windows 实机交互，不把产物核验和 CI 成功当作这些场景已验收。临时安装包、解包目录、校验脚本与便携工具均在记录证据后删除，未安装全局工具或清理用户已有构建缓存。
+
+| 发行产物 | SHA-256 |
+| --- | --- |
+| `Port.Guardian_0.2.13_universal.dmg` | `7df04393cd8d21401a77c863b762848fb1a695e8b5b5eafa63452916db7f5858` |
+| `Port.Guardian_universal.app.tar.gz` | `7830eadb6550a66fafbe2639865361a61b93a3cc3c043a56d780e403b7edb091` |
+| `Port.Guardian_0.2.13_x64-setup.nsis.zip` | `14a110738b0b1b1cdb22601727b445fbc991eb21825dcc3a2c77d2dc707d87a8` |
+| `Port.Guardian_0.2.13_x64-setup.exe` | `9934e1442e904726aeb71b3da161d940df4526f271cdfcb14aa317a1a7e8d2cf` |
+
+核验经验：Windows 的 NSIS 安装器外壳图标与应用 EXE 图标分别配置。首次核验误把外层安装器默认资源当成应用图标，随后解包实际应用，六尺寸严格比对通过；v0.2.13 的外层安装器仍采用 NSIS 默认图标。下次核对应用图标应先定位包内应用，不能只查看安装器文件。资源目录读取依据 [Microsoft PE 格式](https://learn.microsoft.com/en-us/windows/win32/debug/pe-format#the-rsrc-section)，独立配置见 [Tauri installerIcon](https://v2.tauri.app/reference/config/#installericon)；解包使用 [7-Zip 官方便携版 26.04](https://www.7-zip.org/download.html)，下载 digest 与官方 Release 一致，仅在临时目录使用并清理。
+
+下载经验：本机直连 GitHub 超时；现有代理可返回公开资产 HTTP 200，但大文件传输曾触发限时。已用断点续传完成文件并通过 digest / 签名验证；首轮并发超时的具体原因没有充分证据，不归因为软件或资产损坏。HEAD 成功不代替完整文件核验，慢链路优先复用已验证文件并续传部分文件。

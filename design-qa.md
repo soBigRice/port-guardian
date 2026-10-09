@@ -79,4 +79,4 @@ final result: passed
 
 macOS universal `.app` 构建通过，包内图标与 `src-tauri/icons/icon.icns` SHA-256 均为 `f52649d1c99d4e056245a8c8f29a7f8cbedb1f37349d467e1bff340cb9942870`。已替换 `/Applications/Port Guardian.app`，标识 `com.port-guardian.app`、版本 `0.2.12`、Intel / Apple Silicon 架构保持，安装后二进制、Info.plist 与图标均匹配构建包；macOS `NSWorkspace` 解析出的安装图标已实看为新图。启动命令观察到应用进程；未据此宣称完整应用交互或 Dock / Windows 任务栏验收。
 
-本机打包仅通过一次性 CLI 配置关闭 updater 产物生成；正式更新端点、公钥、发布签名流程和版本未变。此次没有发布新的桌面 Release，公开 v0.2.12 安装包仍属于此前发行产物。测试页面、安装备份、截图临时文件与预览进程在核对后清理。
+图标替换阶段，本机打包仅通过一次性 CLI 配置关闭 updater 产物生成；正式更新端点、公钥与发布签名流程未变，安装的本机包版本仍为 0.2.12。随后用户明确要求发行新版，v0.2.13 已公开，安装包内 Mac / Windows 实际应用图标均核验通过，官网静态下载链接已同步。完整发行证据及未执行的实机边界见 [v0.2.13 发行核验](docs/port-scanning.md#v0213-发行核验)。测试页面、安装备份、临时文件与预览进程在核对后清理。
