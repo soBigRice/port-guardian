@@ -66,3 +66,17 @@ final result: passed
 发布状态：v0.2.11 的 macOS 构建通过，Windows 在 npm 测试入口因通配符未展开而失败，未公开发布。修正为明确文件路径，使用 v0.2.12 新标签重建，不改写已有标签。
 
 最终发行状态：v0.2.12 已公开，双平台回归与打包成功，匿名下载、包内版本/架构、完整 notes、更新签名及 SHA-256 已核验。发行提交 `041f751`，详见 [发行核验记录](docs/port-scanning.md#v0212-发行核验)。测试下载、校验脚本与临时日志在记录必要结果后清理；Windows 实机及实际覆盖安装仍属于人工验收边界。
+
+## 图标方向更新（2026-10-09，已确认并接入）
+
+用户反馈现有图标显得老旧，要求重新生成。原图由高光、金属描边、端口、盾牌和绿色勾选徽章多层叠加，和当前极简官网的视觉方向不协调。
+
+新候选：[icon-modern-proposal.png](docs/design/icon-modern-proposal.png)，内置 Image Gen 生成，1254 × 1254 PNG，保留透明外角。提示词方向是钴蓝底、白色粗几何符号，将端口触点与守护轮廓合并为一个图形，移除金属、高光、电路线和额外徽章；生成结果已查看。
+
+用户明确确认这版图标并要求替换应用和官网。原样复制至唯一生成源 `icon/icon.png`，通过项目现有 `npm run tauri icon icon/icon.png` 重建 `src-tauri/icons/`；没有裁切、改变构图或重新生成艺术稿。官网构建继续复制 `128x128.png`，导航、页脚和 favicon 共用这一资源。
+
+验证：源图与确认稿 SHA-256 相同；PNG 为 RGBA、外角 Alpha 为 0；ICO 包含 16/24/32/48/64/256 px，ICNS 包含 16–1024 px 所需倍率。双语官网在 1280 px 桌面、390 px 手机实际渲染，图标加载成功、语言切换正常、没有根页面水平溢出，桌面记录已更新至 `docs/design/website-implemented.png`。
+
+macOS universal `.app` 构建通过，包内图标与 `src-tauri/icons/icon.icns` SHA-256 均为 `f52649d1c99d4e056245a8c8f29a7f8cbedb1f37349d467e1bff340cb9942870`。已替换 `/Applications/Port Guardian.app`，标识 `com.port-guardian.app`、版本 `0.2.12`、Intel / Apple Silicon 架构保持，安装后二进制、Info.plist 与图标均匹配构建包；macOS `NSWorkspace` 解析出的安装图标已实看为新图。启动命令观察到应用进程；未据此宣称完整应用交互或 Dock / Windows 任务栏验收。
+
+本机打包仅通过一次性 CLI 配置关闭 updater 产物生成；正式更新端点、公钥、发布签名流程和版本未变。此次没有发布新的桌面 Release，公开 v0.2.12 安装包仍属于此前发行产物。测试页面、安装备份、截图临时文件与预览进程在核对后清理。
