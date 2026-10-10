@@ -61,7 +61,7 @@ struct PortFound<'a> {
     service: &'a PortService,
 }
 
-// watchdog 只结束前端等待，不能取消已经运行的系统查询；后端禁止叠加扫描。
+// 后端禁止叠加扫描；Windows 查询另有进程级超时和本轮预算，不能只靠前端 watchdog。
 static SCAN_ACTIVE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 struct ScanGuard;
 impl ScanGuard {
@@ -116,7 +116,10 @@ fn scan_services(
     mut report: impl FnMut(&ScanProgress, Option<&PortService>) -> Result<(), String>,
 ) -> Result<ScanResult, String> {
     let _guard = ScanGuard::acquire()?;
-    process_resolver::prefetch_all_processes();
+    // 在前端 30 秒 watchdog 之前结束查询并回收资源，预留 IPC 收尾时间。
+    #[cfg(windows)]
+    let query_budget = crate::windows_command::QueryBudget::new(std::time::Duration::from_secs(25));
+    process_resolver::prefetch_all_processes()?;
     let ports = port_scanner::scan_listening_ports()?;
     let current_user = whoami::username();
     let mut progress = ScanProgress {
@@ -130,6 +133,8 @@ fn scan_services(
     // 同一进程的多个端口复用本轮解析和溯源，缓存不跨扫描保存。
     let mut processes = std::collections::HashMap::new();
     for port_info in ports {
+        #[cfg(windows)]
+        query_budget.check()?;
         let resolved = processes.entry(port_info.pid).or_insert_with(|| {
             process_resolver::resolve_process(port_info.pid).map(|process| {
                 let chain = process_tree::build_parent_chain(port_info.pid);
@@ -183,6 +188,8 @@ fn scan_services(
         report(&progress, Some(&service))?;
         services.push(service);
     }
+    #[cfg(windows)]
+    query_budget.check()?;
     Ok(ScanResult {
         scan_id,
         total: progress.total,
@@ -239,7 +246,7 @@ pub fn get_process_detail(pid: u32) -> Result<ProcessDetail, String> {
     let current_user = whoami::username();
 
     // Windows: 预取进程信息（如果还没有缓存的话）
-    process_resolver::prefetch_all_processes();
+    process_resolver::prefetch_all_processes()?;
     let process = process_resolver::resolve_process(pid)?;
     let parent_chain = process_tree::build_parent_chain(pid);
     let source = process_tree::identify_source(&parent_chain);

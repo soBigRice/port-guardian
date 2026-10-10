@@ -144,7 +144,7 @@ pub fn resolve_process_for_termination(pid: u32) -> Result<ProcessInfo, String> 
 // ═══════════════════════════════════════════════════════════════
 
 #[cfg(windows)]
-use crate::windows_command::hidden_command;
+use crate::windows_command::powershell_output;
 #[cfg(windows)]
 use std::collections::HashMap;
 #[cfg(windows)]
@@ -220,7 +220,7 @@ fn hydrate_cached_process_info(pid: u32, mut info: ProcessInfo) -> ProcessInfo {
 /// 一次性批量获取所有进程信息（Windows 专用，启动时调用一次）
 /// 使用单次 PowerShell 调用，避免每个 PID 单独启动 PowerShell
 #[cfg(windows)]
-pub fn prefetch_all_processes() {
+pub fn prefetch_all_processes() -> Result<(), String> {
     // 静默轮询会频繁调用扫描；30 秒内复用全量进程快照，避免持续唤起 WMI/PowerShell。
     // 如果出现新 PID，resolve_process 仍会走单 PID 查询兜底，不会等到 TTL 过期才显示。
     let cache_is_fresh = PROCESS_CACHE_UPDATED
@@ -234,13 +234,12 @@ pub fn prefetch_all_processes() {
         .and_then(|cache| cache.as_ref().map(|map| !map.is_empty()))
         .unwrap_or(false);
     if cache_is_fresh && cache_has_data {
-        return;
+        return Ok(());
     }
 
-    let ps_script = "chcp 65001 > $null; \
-                     [Console]::OutputEncoding = [System.Text.Encoding]::UTF8; \
+    let ps_script = "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; \
                      $OutputEncoding = [System.Text.Encoding]::UTF8; \
-                     Get-CimInstance -ClassName Win32_Process -ErrorAction SilentlyContinue | \
+                     Get-CimInstance -ClassName Win32_Process -OperationTimeoutSec 20 -ErrorAction Stop | \
                      ForEach-Object { \
                        Write-Output ('PID:' + $_.ProcessId); \
                        Write-Output ('PPID:' + $_.ParentProcessId); \
@@ -250,13 +249,8 @@ pub fn prefetch_all_processes() {
                        Write-Output '---'; \
                      }";
 
-    let output = match hidden_command("powershell")
-        .args(["-NoProfile", "-NonInteractive", "-Command", ps_script])
-        .output()
-    {
-        Ok(o) => o,
-        Err(_) => return,
-    };
+    // 失败不能静默变成缓存未命中，否则会对每个端口及父进程反复启动查询。
+    let output = powershell_output(ps_script, "批量查询 Windows 进程")?;
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     let mut map = HashMap::new();
@@ -327,6 +321,10 @@ pub fn prefetch_all_processes() {
         );
     }
 
+    if map.is_empty() {
+        return Err("批量查询 Windows 进程未返回可识别记录，请检查本机 WMI 状态".into());
+    }
+
     // 写入缓存。刷新全量进程快照时，如果同一 PID 的命令和可执行路径没变，
     // 只保留上一轮已补齐的 owner，避免每 30 秒重复调用 PowerShell。
     // cwd 通过原生 API 读取成本较低，刷新后重新读取，避免长期保留旧工作目录。
@@ -348,12 +346,14 @@ pub fn prefetch_all_processes() {
     if let Ok(mut updated) = PROCESS_CACHE_UPDATED.lock() {
         *updated = Some(Instant::now());
     }
+    Ok(())
 }
 
 /// Unix: 无操作的预取占位
 #[cfg(unix)]
-pub fn prefetch_all_processes() {
+pub fn prefetch_all_processes() -> Result<(), String> {
     // Unix 不需要预取；ps 和系统 /proc API 单次调用成本较低。
+    Ok(())
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -623,10 +623,9 @@ fn get_ps_info(pid: u32) -> Result<(u32, String, String, String), String> {
 #[cfg(windows)]
 fn get_ps_info_uncached(pid: u32) -> Result<(u32, String, String, String), String> {
     let ps_script = format!(
-        "chcp 65001 > $null; \
-         [Console]::OutputEncoding = [System.Text.Encoding]::UTF8; \
+        "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; \
          $OutputEncoding = [System.Text.Encoding]::UTF8; \
-         $p = Get-CimInstance -ClassName Win32_Process -Filter 'ProcessId={}' -ErrorAction SilentlyContinue; \
+         $p = Get-CimInstance -ClassName Win32_Process -Filter 'ProcessId={}' -OperationTimeoutSec 20 -ErrorAction Stop; \
          if ($p) {{ \
            Write-Output ('PPID:' + $p.ParentProcessId); \
            Write-Output ('NAME:' + $p.Name); \
@@ -635,10 +634,7 @@ fn get_ps_info_uncached(pid: u32) -> Result<(u32, String, String, String), Strin
         pid
     );
 
-    let output = hidden_command("powershell")
-        .args(["-NoProfile", "-NonInteractive", "-Command", &ps_script])
-        .output()
-        .map_err(|e| format!("Failed to run PowerShell: {}", e))?;
+    let output = powershell_output(&ps_script, &format!("查询 Windows 进程 PID {pid}"))?;
 
     let stdout = String::from_utf8_lossy(&output.stdout);
 
@@ -920,10 +916,9 @@ fn get_executable_path(pid: u32) -> String {
 #[cfg(windows)]
 fn get_executable_path_uncached(pid: u32) -> String {
     let ps_script = format!(
-        "chcp 65001 > $null; \
-         [Console]::OutputEncoding = [System.Text.Encoding]::UTF8; \
+        "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; \
          $OutputEncoding = [System.Text.Encoding]::UTF8; \
-         $p = Get-CimInstance -ClassName Win32_Process -Filter 'ProcessId={}' -ErrorAction SilentlyContinue; \
+         $p = Get-CimInstance -ClassName Win32_Process -Filter 'ProcessId={}' -OperationTimeoutSec 20 -ErrorAction Stop; \
          if ($p) {{ \
            $ep = [string]$p.ExecutablePath; \
            if ($ep) {{ Write-Output $ep }} \
@@ -932,9 +927,7 @@ fn get_executable_path_uncached(pid: u32) -> String {
         pid
     );
 
-    let output = hidden_command("powershell")
-        .args(["-NoProfile", "-NonInteractive", "-Command", &ps_script])
-        .output();
+    let output = powershell_output(&ps_script, &format!("查询 Windows 可执行路径 PID {pid}"));
 
     match output {
         Ok(out) => {

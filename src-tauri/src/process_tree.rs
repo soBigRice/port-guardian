@@ -490,7 +490,7 @@ fn extract_field(s: &str) -> (&str, &str) {
 #[cfg(windows)]
 fn get_process_brief(pid: u32) -> Result<(u32, String, String, String), String> {
     use crate::process_resolver;
-    use crate::windows_command::hidden_command;
+    use crate::windows_command::powershell_output;
 
     // 父进程链只需要轻量字段；命中缓存时不要调用 resolve_process，
     // 否则会补齐 owner/cwd，端口多时 Windows 扫描会被权限查询拖慢。
@@ -500,10 +500,9 @@ fn get_process_brief(pid: u32) -> Result<(u32, String, String, String), String> 
 
     // 缓存未命中，单独调用 PowerShell
     let ps_script = format!(
-        "chcp 65001 > $null; \
-         [Console]::OutputEncoding = [System.Text.Encoding]::UTF8; \
+        "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; \
          $OutputEncoding = [System.Text.Encoding]::UTF8; \
-         $p = Get-CimInstance -ClassName Win32_Process -Filter 'ProcessId={}' -ErrorAction SilentlyContinue; \
+         $p = Get-CimInstance -ClassName Win32_Process -Filter 'ProcessId={}' -OperationTimeoutSec 20 -ErrorAction Stop; \
          if ($p) {{ \
            Write-Output ('PPID:' + $p.ParentProcessId); \
            Write-Output ('NAME:' + $p.Name); \
@@ -512,10 +511,7 @@ fn get_process_brief(pid: u32) -> Result<(u32, String, String, String), String> 
         pid
     );
 
-    let output = hidden_command("powershell")
-        .args(["-NoProfile", "-NonInteractive", "-Command", &ps_script])
-        .output()
-        .map_err(|e| format!("PowerShell failed: {}", e))?;
+    let output = powershell_output(&ps_script, &format!("查询 Windows 父进程 PID {pid}"))?;
 
     let stdout = String::from_utf8_lossy(&output.stdout);
 

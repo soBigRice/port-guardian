@@ -1,6 +1,6 @@
 # 端口扫描、刷新与终止
 
-核对日期：2026-10-09。v0.2.13 发布代码，扫描与终止实现继承 v0.2.12，已合入 `b19ef86`（v0.2.10）的兼容修复；自动验证通过，桌面主观体验及 Windows 实机仍待验收。
+核对日期：2026-10-10。v0.2.14 发布准备基于 v0.2.13，扫描与终止实现继承 v0.2.12，已合入 `b19ef86`（v0.2.10）的兼容修复。Windows 查询超时修复已通过本机自动验证，用户已授权发布；Windows CI、发行产物及实机状态分别记录，发布核验见文末。
 
 ## 入口和职责
 
@@ -13,6 +13,7 @@
 | `src-tauri/src/commands.rs` | `scan_services` / `scan_ports_stream` / `terminate_process` | 后端扫描互斥、按 PID 复用解析、事件与最终结果、执行前复核 |
 | `src-tauri/src/port_scanner.rs` | `scan_listening_ports` / `add_port` | TCP LISTEN、UDP 绑定，以及基于索引的地址合并 |
 | `src-tauri/src/process_resolver.rs` | `resolve_process` / `get_cwd_macos` | 进程和工作目录；macOS 使用已有 `libc` 的系统 ABI 类型 |
+| `src-tauri/src/windows_command.rs` | `QueryBudget` / `powershell_output` / `output_with_timeout` | Windows 查询的本轮预算、执行时限、错误上下文与子进程/输出线程回收 |
 | `src-tauri/src/service_classifier.rs` | `classify` | 进程名、命令和来源分类；端口号本身不构成数据库或基础设施身份 |
 
 ## 扫描链路和不变项
@@ -29,8 +30,24 @@
 - 每条记录的 ID 仍为 `protocol-port-pid`。多个 IPv4/IPv6 地址合并到 `local_address`，不增加重复服务行。
 - 排除系统返回的未绑定端口（local_port 为 0）；这类套接字没有可释放的端口，不应展示为服务。
 - 手动刷新接管正在执行的后台扫描并显示反馈，保留详情、多选和筛选。可见窗口在首扫结束后每 10 秒轮询；隐藏或失焦暂停。
-- watchdog 不会取消系统查询。后端 `ScanGuard` 禁止重叠扫描；旧请求返回和晚到事件不会写入下一轮状态。
+- 前端 watchdog 不会取消系统查询。后端 `ScanGuard` 禁止重叠扫描；旧请求返回和晚到事件不会写入下一轮状态。Windows 的 PowerShell 查询由后端管理超时和回收，规则见下节；原生系统 API 仍不支持由该 watchdog 强制取消。
 - 组件卸载时注销监听并关闭 watchdog、流式 flush 和轮询。未完成的命令返回后不写入已卸载组件。
+
+## Windows 查询超时与恢复
+
+`scan_services → ScanGuard → QueryBudget(25 秒) → prefetch_all_processes → powershell_output → output_with_timeout → 完整缓存 → 端口/PID/父进程解析`
+
+- 同一个扫描工作线程内的 PowerShell 查询共享 25 秒预算；单次查询也最多 25 秒，实际使用本轮剩余预算，不对每个 PID 重新计算完整预算。保留接近既有 30 秒前端等待上限的处理窗口，并为回收和 IPC 收尾预留时间。`Get-CimInstance` 同时指定 `-OperationTimeoutSec 20 -ErrorAction Stop`。预算耗尽后不再启动查询，每个端口处理前及最终返回前检查预算。预算只限定查询及后续处理入口，不承诺原生套接字、token/账户或 PEB API 的绝对执行时限。
+- 不再只依靠前端的 30 秒计时器：阻塞查询超过执行时限后，停止本工具创建的 PowerShell 子进程并等待回收，同时回收 stdout/stderr 读取线程，再沿错误返回路径释放 `ScanGuard`。不终止被扫描的用户进程。
+- 等待查询时并发读取两个输出管道，防止全量进程快照超过管道容量后出现“等待退出，但进程正在等待写入”的死锁。不产生临时输出文件。
+- 批量查询启动失败、执行超时、退出码非零或没有可识别记录，均返回包含查询阶段的错误；不更新缓存时间，也不静默转成逐 PID/父进程的连续查询。前端现有失败分支保留旧列表和上次完整刷新时间。
+- `QueryBudget` 退出时恢复线程原有预算，不影响其他线程的终止身份复核。保留 30 秒扫描缓存、轻量父进程读取、原生 owner/cwd、终止前绕过缓存的身份检查及普通/强制终止选择。
+
+2026-10-10 用户反馈：最新版 Windows 显示“扫描超时，已保留现有结果”。代码已证实此前所有 PowerShell 查询使用无执行时限的 `.output()`，批量失败被吞掉，前端超时不能释放仍在运行的后端扫描锁。缺少该 Windows 机器的查询耗时和错误，**尚不能确认此次实际阻塞发生在 WMI、某个 PID/父进程还是原生系统 API**。不能把有缺陷的超时机制直接写成这台机器的已复现根因，也不能用延长前端等待时间代替查询生命周期修复。
+
+本机先用原有 `.output()` 行为运行模拟阻塞回归，测试失败；修复后验证超时回收、查询进程已退出、下一次查询成功、双管道各 1 MiB 输出、非零退出码/stderr 保留、预算截止及恢复，均通过。Windows 专用的真实 PowerShell 超时恢复与错误上下文用例已加入同一 Rust 测试入口，由 v0.2.14 发布流水线执行；本机没有 Windows 工具链或运行环境。
+
+下次同类故障优先看错误中的查询阶段和 PID，再区分批量 WMI、单 PID、父进程及原生账户查询；检查失败后是否还有查询子进程与扫描锁，避免叠加刷新。实现依据：[Microsoft Windows PowerShell 5.1 Get-CimInstance](https://learn.microsoft.com/en-us/powershell/module/cimcmdlets/get-ciminstance?view=powershell-5.1)、[Rust Child 的 kill/wait/try_wait 生命周期](https://doc.rust-lang.org/std/process/struct.Child.html)。没有新增依赖或改变发布配置。
 
 ## 查询和界面
 
@@ -73,7 +90,7 @@
 ## 验证
 
 - `npm test`：`tests/scan-state.test.mjs`，12 项状态、查询、排序、PID 去重和完整路径分组回归。
-- `cargo test --locked --lib`：14 项本机 Rust 回归，包括真实 macOS 当前目录读取、未绑定套接字过滤、双栈地址聚合、分类、Unresolved 行和终止保护。
+- `cargo test --locked --lib`：2026-10-10 本机 20 项 Rust 回归，包括真实 macOS 当前目录读取、未绑定套接字过滤、双栈地址聚合、分类、Unresolved 行、终止保护及查询超时/回收。新增 Windows 专用 PowerShell 用例尚未在 Windows 执行。
 - `npm run build`：TypeScript 和 Vite 构建。
 - 本机真实扫描成功读取工作目录，同进程双栈地址保留。服务数量随本机运行状态变化，本次未进行相同负载的性能基准对比。
 - 两个临时监听子进程：陈旧身份请求被拒绝；正常 SIGTERM 退出；忽略 SIGTERM 时返回失败且进程继续存活；明确 force 后退出。子进程与临时文件均在检查后清理。

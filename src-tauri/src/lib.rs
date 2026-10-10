@@ -5,7 +5,7 @@ mod process_tree;
 mod safety_checker;
 mod service_classifier;
 mod terminator;
-#[cfg(windows)]
+#[cfg(any(windows, test))]
 mod windows_command;
 
 use commands::{
