@@ -9,6 +9,42 @@ pub struct ProcessNode {
 
 /// 构建父进程链（从当前进程向上追溯到 init/launchd/Windows System）
 pub fn build_parent_chain(pid: u32) -> Vec<ProcessNode> {
+    build_parent_chain_with(pid, get_process_brief)
+}
+
+type ProcessBrief = (u32, String, String, String);
+
+// 仅在本轮 Windows 扫描中复用父进程查询，包括已退出或无法读取的 PID。
+#[cfg(windows)]
+#[derive(Default)]
+pub(crate) struct ParentChainCache {
+    processes: std::collections::HashMap<u32, Result<ProcessBrief, String>>,
+}
+
+#[cfg(windows)]
+impl ParentChainCache {
+    pub(crate) fn build_parent_chain(&mut self, pid: u32) -> Vec<ProcessNode> {
+        self.build_parent_chain_with(pid, get_process_brief)
+    }
+
+    fn build_parent_chain_with(
+        &mut self,
+        pid: u32,
+        mut lookup: impl FnMut(u32) -> Result<ProcessBrief, String>,
+    ) -> Vec<ProcessNode> {
+        build_parent_chain_with(pid, |current_pid| {
+            self.processes
+                .entry(current_pid)
+                .or_insert_with(|| lookup(current_pid))
+                .clone()
+        })
+    }
+}
+
+fn build_parent_chain_with(
+    pid: u32,
+    mut get_process_brief: impl FnMut(u32) -> Result<ProcessBrief, String>,
+) -> Vec<ProcessNode> {
     let mut chain = Vec::new();
     let mut current_pid = pid;
     let mut seen = std::collections::HashSet::new();
@@ -539,4 +575,59 @@ fn get_process_brief(pid: u32) -> Result<(u32, String, String, String), String> 
     }
 
     Ok((ppid, String::new(), name, command_line))
+}
+
+#[cfg(all(test, windows))]
+mod tests {
+    use super::*;
+
+    fn brief(ppid: u32, name: &str) -> ProcessBrief {
+        (ppid, String::new(), name.into(), name.into())
+    }
+
+    #[test]
+    fn shared_parent_and_missing_ancestor_are_queried_once_per_scan() {
+        let mut cache = ParentChainCache::default();
+        let mut calls = std::collections::HashMap::<u32, usize>::new();
+
+        for pid in 100..200 {
+            let chain = cache.build_parent_chain_with(pid, |current_pid| {
+                *calls.entry(current_pid).or_default() += 1;
+                match current_pid {
+                    100..=199 => Ok(brief(1000, "listener")),
+                    1000 => Ok(brief(2000, "parent")),
+                    _ => Err(format!("Process {current_pid} not found")),
+                }
+            });
+            assert_eq!(
+                chain.iter().map(|node| node.pid).collect::<Vec<_>>(),
+                vec![pid, 1000]
+            );
+        }
+
+        assert_eq!(calls[&1000], 1);
+        assert_eq!(calls[&2000], 1);
+    }
+
+    #[test]
+    fn next_scan_does_not_reuse_a_missing_parent_result() {
+        let mut first_scan = ParentChainCache::default();
+        let chain = first_scan.build_parent_chain_with(100, |pid| match pid {
+            100 => Ok(brief(1000, "listener")),
+            _ => Err(format!("Process {pid} not found")),
+        });
+        assert_eq!(chain.len(), 1);
+
+        let mut next_scan = ParentChainCache::default();
+        let chain = next_scan.build_parent_chain_with(100, |pid| match pid {
+            100 => Ok(brief(1000, "listener")),
+            1000 => Ok(brief(4, "new parent")),
+            _ => panic!("unexpected PID {pid}"),
+        });
+        assert_eq!(
+            chain.iter().map(|node| node.pid).collect::<Vec<_>>(),
+            vec![100, 1000]
+        );
+        assert_eq!(chain[1].name, "new parent");
+    }
 }

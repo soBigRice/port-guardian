@@ -17,7 +17,7 @@ const en: typeof zh = {
     sort: {port: "Port", project: "Project directory", process: "Process name"},
     technicalColumns: "Detailed columns", resultCount: "Showing {shown} / {total} services",
     scanProgress: "Identifying services {count} / {total}", scanDuration: "{seconds} seconds",
-    scanIssue: {failed: "Scan failed. Existing results retained.", timeout: "Scan timed out. Existing results retained.", partial: "Could not identify {count} entries. Unverified previous entries retained."},
+    scanIssue: {failed: "Scan failed. Existing results retained.", timeout: "Scan timed out. Existing results retained.", partial: "Port list updated. {count} unidentified entries cannot be terminated."},
     processExited: "Process {pid} exited; port {port} is released",
     portStillOccupied: "Process {pid} exited; rechecking port {port}",
     batchResult: "Exited: {success} processes. Failed: {failed}",

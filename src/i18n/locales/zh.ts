@@ -15,7 +15,7 @@ const zh = {
     sort: {port: "端口", project: "项目目录", process: "进程名称"},
     technicalColumns: "详细列", resultCount: "显示 {shown} / {total} 个服务",
     scanProgress: "正在识别服务 {count} / {total}", scanDuration: "用时 {seconds} 秒",
-    scanIssue: {failed: "扫描失败，已保留现有结果", timeout: "扫描超时，已保留现有结果", partial: "有 {count} 条记录未能识别，已保留未核实的旧条目"},
+    scanIssue: {failed: "扫描失败，已保留现有结果", timeout: "扫描超时，已保留现有结果", partial: "端口列表已更新，{count} 条未识别记录已禁止终止"},
     processExited: "进程 {pid} 已退出，端口 {port} 已释放",
     portStillOccupied: "进程 {pid} 已退出，正在重新核实端口 {port} 的占用状态",
     batchResult: "已退出 {success} 个进程，失败 {failed} 个",

@@ -7,7 +7,7 @@ import ts from "typescript";
 const source = readFileSync(new URL("../src/utils/scanState.ts", import.meta.url), "utf8");
 const exports = {};
 vm.runInNewContext(ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 } }).outputText, { exports });
-const { mergeScannedServices, matchesSearch, sortServices, uniqueProcesses, groupServices } = exports;
+const { mergeScanResult, mergeScannedServices, matchesSearch, sortServices, uniqueProcesses, groupServices } = exports;
 const service = (overrides = {}) => ({
   id: "TCP-3000-10", port: 3000, protocol: "TCP", pid: 10,
   local_address: "127.0.0.1", state: "LISTEN", process_name: "node", executable_path: "/usr/bin/node",
@@ -38,6 +38,27 @@ test("partial scan updates received entries and retains unverified entries", () 
   assert.equal(result.length, 2);
   assert.equal(result[0], next);
   assert.equal(result[1], other);
+});
+
+test("completed scan with an unidentified process removes expired ports and retains its protected row", () => {
+  const old = service();
+  const expired = service({ id: "TCP-4000-11", port: 4000, pid: 11 });
+  const next = service({ cwd: "/updated" });
+  const unresolved = service({
+    id: "UDP-54450-11288", port: 54450, protocol: "UDP", pid: 11288,
+    process_name: "PID 11288", service_type: "unknown", service_name: "Unresolved",
+    safety_level: "danger", can_terminate: false,
+  });
+  const result = mergeScanResult([old, expired], {
+    scan_id: "completed-with-unidentified-process", total: 2, skipped: 1,
+    services: [next, unresolved],
+  });
+
+  assert.equal(result.length, 2);
+  assert.equal(result[0], next);
+  assert.equal(result[1], unresolved);
+  assert.equal(result.some((entry) => entry.id === expired.id), false);
+  assert.equal(result[1].can_terminate, false);
 });
 
 test("only complete scans remove absent entries, including a successful empty scan", () => {

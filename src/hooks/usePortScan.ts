@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type { PortService, ScanProgress, ScanResult } from "../types";
-import { mergeScannedServices } from "../utils/scanState";
+import { mergeScanResult, mergeScannedServices } from "../utils/scanState";
 
 export type ScanIssue = { kind: "failed" | "timeout" | "partial"; message?: string; skipped?: number };
 export const isTauriRuntime = () => "__TAURI_INTERNALS__" in window;
@@ -67,15 +67,14 @@ export function usePortScan() {
       stopTimers();
       if (result) {
         const snapshot = result.services.filter((service) => !terminatedPidsRef.current.has(service.pid));
-        setServices((prev) => mergeScannedServices(prev, snapshot, result.skipped === 0));
+        setServices((prev) => mergeScanResult(prev, {...result, services: snapshot}));
         setScannedCount(result.total);
         setScanTotal(result.total);
         setDurationMs(Math.round(performance.now() - started));
+        completedRef.current = true;
+        setLastRefresh(new Date());
         if (result.skipped) {
           failure = {kind: "partial", skipped: result.skipped};
-        } else {
-          completedRef.current = true;
-          setLastRefresh(new Date());
         }
       } else if (streamingRef.current) {
         flushPending();

@@ -1,4 +1,4 @@
-import type { PortService } from "../types";
+import type { PortService, ScanResult } from "../types";
 
 export type SortKey = "port" | "process" | "pid" | "project";
 
@@ -20,6 +20,11 @@ export function mergeScannedServices(prev: PortService[], scanned: PortService[]
   }
   merged.push(...incoming.values());
   return merged.length === prev.length && merged.every((service, index) => service === prev[index]) ? prev : merged;
+}
+
+// 命令成功返回 ScanResult 时端口枚举已完成；skipped 仅表示进程信息未能解析。
+export function mergeScanResult(prev: PortService[], result: ScanResult) {
+  return mergeScannedServices(prev, result.services);
 }
 
 export function matchesSearch(service: PortService, query: string) {

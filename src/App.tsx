@@ -445,7 +445,7 @@ function App() {
       {actionNotice && <div className="workspace-action-notice" role="status"><span>{actionNotice}</span><button className="icon-button" aria-label={t("common.close")} onClick={() => setActionNotice(null)}><CloseIcon size={16} /></button></div>}
       <main className="workspace-main">
         <PortTable services={filtered} selected={selected} loading={loading} scanTotal={scanTotal} scannedCount={scannedCount}
-          hasFilter={search !== "" || filter !== "all" || protocolFilter !== "all"} scanFailed={issue !== null}
+          hasFilter={search !== "" || filter !== "all" || protocolFilter !== "all"} scanFailed={issue?.kind === "failed" || issue?.kind === "timeout"}
           showTechnicalColumns={showTechnicalColumns} byProject={byProject} search={search}
           terminatingPid={terminatingPid} actionsDisabled={terminatingPid !== null} selectedIds={selectedIds} bookmarkedPorts={bookmarkedPorts}
           onSelect={setSelected} onClose={() => setSelected(null)} onKill={(service) => {if (!operationRef.current) setKillTarget(service);}}
@@ -456,7 +456,7 @@ function App() {
           {issue ? t("app.scanIssue." + issue.kind as "app.scanIssue.failed" | "app.scanIssue.timeout" | "app.scanIssue.partial", {count: issue.skipped ?? 0}) : scanning
             ? scanTotal ? t("app.scanProgress", {count: scannedCount, total: scanTotal}) : t("portTable.scanningPorts")
             : t("app.scanComplete")}</span>
-        {!issue && <span className="workspace-result-count">{t("app.resultCount", {shown: filtered.length, total: services.length})}</span>}
+        {(!issue || issue.kind === "partial") && <span className="workspace-result-count">{t("app.resultCount", {shown: filtered.length, total: services.length})}</span>}
         {issue?.message && <span className="workspace-error-detail" title={issue.message}>{issue.message}</span>}
         {!scanning && durationMs !== null && <span className="workspace-duration">{t("app.scanDuration", {seconds: (durationMs / 1000).toFixed(2)})}</span>}
       </footer>

@@ -132,11 +132,16 @@ fn scan_services(
     let mut services = Vec::new();
     // 同一进程的多个端口复用本轮解析和溯源，缓存不跨扫描保存。
     let mut processes = std::collections::HashMap::new();
+    #[cfg(windows)]
+    let mut parent_chains = process_tree::ParentChainCache::default();
     for port_info in ports {
         #[cfg(windows)]
         query_budget.check()?;
         let resolved = processes.entry(port_info.pid).or_insert_with(|| {
             process_resolver::resolve_process(port_info.pid).map(|process| {
+                #[cfg(windows)]
+                let chain = parent_chains.build_parent_chain(port_info.pid);
+                #[cfg(not(windows))]
                 let chain = process_tree::build_parent_chain(port_info.pid);
                 let source = process_tree::identify_source(&chain);
                 (process, chain, source)
