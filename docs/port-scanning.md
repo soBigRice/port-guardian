@@ -1,6 +1,6 @@
 # 端口扫描、刷新与终止
 
-核对日期：2026-10-10。v0.2.14 发布准备基于 v0.2.13，扫描与终止实现继承 v0.2.12，已合入 `b19ef86`（v0.2.10）的兼容修复。Windows 查询超时修复已通过本机自动验证，用户已授权发布；Windows CI、发行产物及实机状态分别记录，发布核验见文末。
+核对日期：2026-10-10。v0.2.14 已公开，扫描与终止实现继承 v0.2.12，已合入 `b19ef86`（v0.2.10）的兼容修复。Windows 查询超时修复通过本机和 Windows CI 自动验证，发行包及更新签名核验通过；报告问题的 Windows 机器仍待更新后复测，发布核验见文末。
 
 ## 入口和职责
 
@@ -45,7 +45,7 @@
 
 2026-10-10 用户反馈：最新版 Windows 显示“扫描超时，已保留现有结果”。代码已证实此前所有 PowerShell 查询使用无执行时限的 `.output()`，批量失败被吞掉，前端超时不能释放仍在运行的后端扫描锁。缺少该 Windows 机器的查询耗时和错误，**尚不能确认此次实际阻塞发生在 WMI、某个 PID/父进程还是原生系统 API**。不能把有缺陷的超时机制直接写成这台机器的已复现根因，也不能用延长前端等待时间代替查询生命周期修复。
 
-本机先用原有 `.output()` 行为运行模拟阻塞回归，测试失败；修复后验证超时回收、查询进程已退出、下一次查询成功、双管道各 1 MiB 输出、非零退出码/stderr 保留、预算截止及恢复，均通过。Windows 专用的真实 PowerShell 超时恢复与错误上下文用例已加入同一 Rust 测试入口，由 v0.2.14 发布流水线执行；本机没有 Windows 工具链或运行环境。
+本机先用原有 `.output()` 行为运行模拟阻塞回归，测试失败；修复后验证超时回收、查询进程已退出、下一次查询成功、双管道各 1 MiB 输出、非零退出码/stderr 保留、预算截止及恢复，均通过。Windows 专用的真实 PowerShell 超时恢复与错误上下文用例已在 v0.2.14 的 Windows CI 执行通过；本机没有 Windows 工具链或运行环境，不能将 CI 结果代替用户机器复测。
 
 下次同类故障优先看错误中的查询阶段和 PID，再区分批量 WMI、单 PID、父进程及原生账户查询；检查失败后是否还有查询子进程与扫描锁，避免叠加刷新。实现依据：[Microsoft Windows PowerShell 5.1 Get-CimInstance](https://learn.microsoft.com/en-us/powershell/module/cimcmdlets/get-ciminstance?view=powershell-5.1)、[Rust Child 的 kill/wait/try_wait 生命周期](https://doc.rust-lang.org/std/process/struct.Child.html)。没有新增依赖或改变发布配置。
 
@@ -90,7 +90,7 @@
 ## 验证
 
 - `npm test`：`tests/scan-state.test.mjs`，12 项状态、查询、排序、PID 去重和完整路径分组回归。
-- `cargo test --locked --lib`：2026-10-10 本机 20 项 Rust 回归，包括真实 macOS 当前目录读取、未绑定套接字过滤、双栈地址聚合、分类、Unresolved 行、终止保护及查询超时/回收。新增 Windows 专用 PowerShell 用例尚未在 Windows 执行。
+- `cargo test --locked --lib`：2026-10-10 本机及 macOS CI 20 项 Rust 回归、Windows CI 22 项回归通过，包括真实 macOS 当前目录读取、未绑定套接字过滤、双栈地址聚合、分类、Unresolved 行、终止保护、查询超时/回收及 Windows PowerShell 超时恢复和异常反馈。
 - `npm run build`：TypeScript 和 Vite 构建。
 - 本机真实扫描成功读取工作目录，同进程双栈地址保留。服务数量随本机运行状态变化，本次未进行相同负载的性能基准对比。
 - 两个临时监听子进程：陈旧身份请求被拒绝；正常 SIGTERM 退出；忽略 SIGTERM 时返回失败且进程继续存活；明确 force 后退出。子进程与临时文件均在检查后清理。
@@ -147,3 +147,24 @@ Windows 发布回归入口（Node 20，2026-10-08）：v0.2.11 流水线日志�
 核验经验：Windows 的 NSIS 安装器外壳图标与应用 EXE 图标分别配置。首次核验误把外层安装器默认资源当成应用图标，随后解包实际应用，六尺寸严格比对通过；v0.2.13 的外层安装器仍采用 NSIS 默认图标。下次核对应用图标应先定位包内应用，不能只查看安装器文件。资源目录读取依据 [Microsoft PE 格式](https://learn.microsoft.com/en-us/windows/win32/debug/pe-format#the-rsrc-section)，独立配置见 [Tauri installerIcon](https://v2.tauri.app/reference/config/#installericon)；解包使用 [7-Zip 官方便携版 26.04](https://www.7-zip.org/download.html)，下载 digest 与官方 Release 一致，仅在临时目录使用并清理。
 
 下载经验：本机直连 GitHub 超时；现有代理可返回公开资产 HTTP 200，但大文件传输曾触发限时。已用断点续传完成文件并通过 digest / 签名验证；首轮并发超时的具体原因没有充分证据，不归因为软件或资产损坏。HEAD 成功不代替完整文件核验，慢链路优先复用已验证文件并续传部分文件。
+
+
+## v0.2.14 发行核验
+
+2026-10-10 已公开 [v0.2.14](https://github.com/soBigRice/port-guardian/releases/tag/v0.2.14)，发行提交 `a7f939b86af4b8946a84b2b9965f862ba8a647b8`；[Release 流水线 38027960023](https://github.com/soBigRice/port-guardian/actions/runs/38027960023) 的 macOS、Windows 和公开发布任务全部成功。两平台各通过 12 项前端回归，macOS 20 项 Rust 回归、Windows 22 项 Rust 回归通过。Windows 包含真实 PowerShell 超时后恢复、失败上下文及绕过扫描缓存的终止身份读取用例。
+
+- 八个公开资产经现有系统代理匿名下载，实际大小和 SHA-256 全部匹配 GitHub 的 digest；Release body 和 updater notes 与本版完整 changelog 一致，比较时统一 LF/CRLF。
+- `releases/latest/download/latest.json` 与 v0.2.14 的公开元数据逐字节相同；六个平台项对应三个唯一更新包，全部通过 `minisign` 对原有公钥的验证，元数据签名与 `.sig` 附件一致。
+- macOS 更新归档内的实际 `.app` 版本 `0.2.14`、标识 `com.port-guardian.app`，应用二进制同时包含 Intel `x86_64` 和 Apple Silicon `arm64`。只读提取必要文件核验，没有安装或启动本次发行包。
+- Windows legacy updater ZIP 内的安装器与公开 x64 EXE 的 SHA-256 相同。本机未执行 Windows 代码，也未在报告问题的机器安装或复测扫描；不能将 CI、签名或发行成功等同于该机器的问题已验收。
+- [Pages 流水线 38029314959](https://github.com/soBigRice/port-guardian/actions/runs/38029314959) 成功；中英文公开页面均显示 v0.2.14，macOS/Windows 下载链接指向本版公开安装包，不再指向 v0.2.13。
+
+| 发行产物 | SHA-256 |
+| --- | --- |
+| `Port.Guardian_0.2.14_universal.dmg` | `89ea2a2d9cb42a3650725c1246a5c9ff184c7d0c52ea514f1b124ae44e400f87` |
+| `Port.Guardian_universal.app.tar.gz` | `37ac1562b7d13bf27d73957c868fa1bd3847d2ab092015e3ae9c3475405d0c68` |
+| `Port.Guardian_0.2.14_x64-setup.exe` | `c9af7e0fc50491f8bd113ef884d2a2c56d5c7efe7a5503bcb9ff90b5a954a544` |
+| `Port.Guardian_0.2.14_x64-setup.nsis.zip` | `ea8bc1b98a0ac9dfa4d866389357a21e6db7dd50777c0a9b3d894b6a16903956` |
+| `latest.json` | `d832e432a445c1d377887b3c1e9b65eda9cd6eb817072ce50af8d360a9767043` |
+
+本次临时下载、只读提取文件、签名转换、核验脚本及监视日志均已清理；所有本机测试和发布监视进程已结束。只清理本次生成的测试可执行文件，保留已有共享依赖和常规构建缓存。
